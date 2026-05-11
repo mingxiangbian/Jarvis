@@ -16,6 +16,10 @@ function numberLines(content: string): string {
   return lines.map((line, index) => `${index + 1} | ${line}`).join('\n')
 }
 
+function numberLineRange(lines: string[], startLine: number): string[] {
+  return lines.map((line, index) => `${startLine + index} | ${line}`)
+}
+
 export const fileReadTool: Tool<z.infer<typeof schema>> = {
   name: 'file_read',
   description: 'Read a UTF-8 text file. Returns content with line numbers and records the file as read for later edits.',
@@ -43,8 +47,13 @@ export const fileReadTool: Tool<z.infer<typeof schema>> = {
       const lineCount = content.split(/\r?\n/).length
       if (lineCount > context.config.readMaxInlineLines) {
         const lines = content.split(/\r?\n/)
-        const compact = [...lines.slice(0, 100), '[output compacted]', ...lines.slice(-50)].join('\n')
-        return { ok: true, content: numberLines(compact), metadata: { path: canonical, compacted: true } }
+        const tailStart = Math.max(lines.length - 50, 0)
+        const compact = [
+          ...numberLineRange(lines.slice(0, 100), 1),
+          '[output compacted]',
+          ...numberLineRange(lines.slice(tailStart), tailStart + 1)
+        ].join('\n')
+        return { ok: true, content: compact, metadata: { path: canonical, compacted: true } }
       }
 
       return { ok: true, content: numberLines(content), metadata: { path: canonical } }
