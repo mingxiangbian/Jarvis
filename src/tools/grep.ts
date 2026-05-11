@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises'
-import { relative, resolve } from 'node:path'
+import { isAbsolute, relative, resolve } from 'node:path'
 import { glob } from 'tinyglobby'
 import { z } from 'zod'
 import type { Tool } from './types.js'
@@ -9,6 +9,10 @@ const schema = z.object({
   path: z.string().min(1).optional(),
   include: z.string().min(1).optional()
 })
+
+function isConfinedPath(path: string): boolean {
+  return !isAbsolute(path) && !path.split(/[\\/]+/).includes('..')
+}
 
 export const grepTool: Tool<z.infer<typeof schema>> = {
   name: 'grep',
@@ -39,6 +43,10 @@ export const grepTool: Tool<z.infer<typeof schema>> = {
 
     const searchRoot = args.path ?? '.'
     const include = args.include ?? '**/*'
+    if (!isConfinedPath(searchRoot) || !isConfinedPath(include)) {
+      return { ok: false, content: 'Grep path and include pattern cannot point outside current working directory.' }
+    }
+
     const files = await glob(include, {
       cwd: resolve(context.config.cwd, searchRoot),
       absolute: true,

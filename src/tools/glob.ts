@@ -1,4 +1,4 @@
-import { relative } from 'node:path'
+import { isAbsolute, relative } from 'node:path'
 import { glob } from 'tinyglobby'
 import { z } from 'zod'
 import type { Tool } from './types.js'
@@ -6,6 +6,10 @@ import type { Tool } from './types.js'
 const schema = z.object({
   pattern: z.string().min(1)
 })
+
+function isConfinedPattern(pattern: string): boolean {
+  return !isAbsolute(pattern) && !pattern.split(/[\\/]+/).includes('..')
+}
 
 export const globTool: Tool<z.infer<typeof schema>> = {
   name: 'glob',
@@ -24,6 +28,10 @@ export const globTool: Tool<z.infer<typeof schema>> = {
   isConcurrencySafe: false,
   needsUserInteraction: false,
   async execute(args, context) {
+    if (!isConfinedPattern(args.pattern)) {
+      return { ok: false, content: 'Glob pattern cannot point outside current working directory.' }
+    }
+
     const matches = await glob(args.pattern, {
       cwd: context.config.cwd,
       absolute: true,

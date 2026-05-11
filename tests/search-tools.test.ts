@@ -35,6 +35,40 @@ describe('search tools', () => {
     expect(result.content.split('\n')).toEqual(['src/a.ts', 'src/nested/b.ts'])
   })
 
+  it('glob rejects parent directory traversal patterns', async () => {
+    const parent = await createTempRoot('glob-traversal-test-')
+    const root = join(parent, 'project')
+    const sibling = join(parent, 'sibling')
+    await mkdir(root, { recursive: true })
+    await mkdir(sibling, { recursive: true })
+    await writeFile(join(sibling, 'secret.txt'), 'secret\n', 'utf8')
+
+    const result = await globTool.execute(
+      { pattern: '../sibling/*.txt' },
+      { config: createDefaultConfig(root), trackedFiles: new Set<string>() }
+    )
+
+    expect(result.ok).toBe(false)
+    expect(result.content).toContain('outside current working directory')
+  })
+
+  it('glob rejects absolute patterns outside cwd', async () => {
+    const parent = await createTempRoot('glob-absolute-test-')
+    const root = join(parent, 'project')
+    const sibling = join(parent, 'sibling')
+    await mkdir(root, { recursive: true })
+    await mkdir(sibling, { recursive: true })
+    await writeFile(join(sibling, 'secret.txt'), 'secret\n', 'utf8')
+
+    const result = await globTool.execute(
+      { pattern: join(sibling, '*.txt') },
+      { config: createDefaultConfig(root), trackedFiles: new Set<string>() }
+    )
+
+    expect(result.ok).toBe(false)
+    expect(result.content).toContain('outside current working directory')
+  })
+
   it('grep finds matching lines with path, line number, and line content', async () => {
     const root = await createTempRoot('grep-test-')
     await mkdir(join(root, 'src'), { recursive: true })
@@ -47,6 +81,40 @@ describe('search tools', () => {
 
     expect(result.ok).toBe(true)
     expect(result.content).toBe('src/a.ts:1: const token = "abc"')
+  })
+
+  it('grep rejects parent directory traversal paths', async () => {
+    const parent = await createTempRoot('grep-path-traversal-test-')
+    const root = join(parent, 'project')
+    const sibling = join(parent, 'sibling')
+    await mkdir(root, { recursive: true })
+    await mkdir(sibling, { recursive: true })
+    await writeFile(join(sibling, 'secret.txt'), 'token\n', 'utf8')
+
+    const result = await grepTool.execute(
+      { pattern: 'token', path: '../sibling', include: '*.txt' },
+      { config: createDefaultConfig(root), trackedFiles: new Set<string>() }
+    )
+
+    expect(result.ok).toBe(false)
+    expect(result.content).toContain('outside current working directory')
+  })
+
+  it('grep rejects parent directory traversal include patterns', async () => {
+    const parent = await createTempRoot('grep-include-traversal-test-')
+    const root = join(parent, 'project')
+    const sibling = join(parent, 'sibling')
+    await mkdir(root, { recursive: true })
+    await mkdir(sibling, { recursive: true })
+    await writeFile(join(sibling, 'secret.txt'), 'token\n', 'utf8')
+
+    const result = await grepTool.execute(
+      { pattern: 'token', include: '../**/*.txt' },
+      { config: createDefaultConfig(root), trackedFiles: new Set<string>() }
+    )
+
+    expect(result.ok).toBe(false)
+    expect(result.content).toContain('outside current working directory')
   })
 
   it('grep caps output at config.grepMaxMatches and marks truncated results', async () => {
