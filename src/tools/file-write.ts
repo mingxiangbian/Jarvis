@@ -45,12 +45,25 @@ async function nearestExistingCanonicalParent(parent: string): Promise<string> {
   }
 }
 
-async function existingSymlinkTarget(path: string): Promise<string | null> {
+type ExistingPath =
+  | { kind: 'missing' }
+  | { kind: 'non-symlink' }
+  | { kind: 'symlink'; target: string | null }
+
+async function inspectExistingPath(path: string): Promise<ExistingPath> {
   try {
     const stats = await lstat(path)
-    return stats.isSymbolicLink() ? realpath(path) : null
+    if (!stats.isSymbolicLink()) {
+      return { kind: 'non-symlink' }
+    }
+
+    try {
+      return { kind: 'symlink', target: await realpath(path) }
+    } catch {
+      return { kind: 'symlink', target: null }
+    }
   } catch {
-    return null
+    return { kind: 'missing' }
   }
 }
 
@@ -93,8 +106,11 @@ export const fileWriteTool: Tool<z.infer<typeof schema>> = {
       return { ok: false, content: `Refusing to write ${resolved}: outside writable roots.` }
     }
 
-    const symlinkTarget = await existingSymlinkTarget(resolved)
-    if (symlinkTarget && !isUnderWritableRoot(symlinkTarget, writableRoots)) {
+    const existingPath = await inspectExistingPath(resolved)
+    if (existingPath.kind === 'symlink' && existingPath.target === null) {
+      return { ok: false, content: `Refusing to write ${resolved}: symlink target cannot be resolved.` }
+    }
+    if (existingPath.kind === 'symlink' && existingPath.target && !isUnderWritableRoot(existingPath.target, writableRoots)) {
       return { ok: false, content: `Refusing to write ${resolved}: outside writable roots.` }
     }
 

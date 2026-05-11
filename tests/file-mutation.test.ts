@@ -118,6 +118,23 @@ describe('file mutation tools', () => {
     expect(await readFile(outsideTarget, 'utf8')).toBe('original\n')
   })
 
+  it('rejects dangling symlinked file writes without creating outside targets', async () => {
+    const root = await createTempRoot('file-write-dangling-symlink-root-test-')
+    const outside = await createTempRoot('file-write-dangling-symlink-outside-test-')
+    const outsideTarget = join(outside, 'missing-target.txt')
+    const link = join(root, 'link.txt')
+    await symlink(outsideTarget, link)
+
+    const result = await fileWriteTool.execute(
+      { file_path: link, content: 'changed\n' },
+      { config: createDefaultConfig(root), trackedFiles: new Set<string>() }
+    )
+
+    expect(result.ok).toBe(false)
+    expect(result.content).toMatch(/Refusing|Unable to write|symlink/i)
+    expect(await pathExists(outsideTarget)).toBe(false)
+  })
+
   it('edits only after the file was read in this session', async () => {
     const root = await createTempRoot('file-edit-test-')
     const file = join(root, 'edit.txt')
