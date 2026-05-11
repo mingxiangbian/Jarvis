@@ -29,11 +29,11 @@ export function createDefaultConfig(cwd: string): AppConfig {
     bashTimeoutMs: 120_000,
     writableRoots: [cwd],
     bashDenyPatterns: [
-      /rm\s+-rf\s+\//,
+      /\brm\b(?=.*(?:^|\s)-[A-Za-z]*r)(?=.*(?:^|\s)-[A-Za-z]*f).*\s(?:--\s+)?\//,
       /mkfs\./,
-      /dd\s+if=/,
+      /\bdd\b(?=.*\bif=)(?=.*\bof=\/dev\/sd[a-z]?\b)/,
       />\s*\/dev\/sd/,
-      /curl\b.*\|\s*sh/,
+      /\b(?:curl|wget)\b.*\|\s*(?:ba)?sh\b/,
       /:\(\)\s*\{\s*:\|:&\s*\};:/
     ]
   }
