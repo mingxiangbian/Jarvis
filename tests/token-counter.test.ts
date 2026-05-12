@@ -53,4 +53,16 @@ describe('estimateTokensForMessages', () => {
 
     expect(estimateTokensForMessages(messages)).toBeGreaterThan(0)
   })
+
+  it('includes tool call ids when tool message content is empty', () => {
+    const messages: ChatMessage[] = [
+      {
+        role: 'tool',
+        content: '',
+        tool_call_id: 'call_1'
+      }
+    ]
+
+    expect(estimateTokensForMessages(messages)).toBeGreaterThan(0)
+  })
 })
