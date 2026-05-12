@@ -96,4 +96,16 @@ describe('callModel', () => {
       })
     ).rejects.toThrow('LLM request failed with HTTP 503: model unavailable')
   })
+
+  it('throws a helpful error when the endpoint cannot be reached', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('fetch failed')))
+
+    await expect(
+      callModel({
+        config: createDefaultConfig('/tmp/project'),
+        messages: [{ role: 'user', content: 'Hello' }],
+        tools: []
+      })
+    ).rejects.toThrow('LLM request failed: fetch failed')
+  })
 })

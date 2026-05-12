@@ -29,6 +29,7 @@ export async function runAgentLoop(input: RunAgentLoopInput): Promise<RunAgentLo
     trackedFiles: new Set<string>()
   }
   let toolCallCount = 0
+  let emptyFinalResponseCount = 0
 
   while (toolCallCount < input.config.maxToolCallsPerTurn) {
     const response = await callModel({
@@ -38,9 +39,27 @@ export async function runAgentLoop(input: RunAgentLoopInput): Promise<RunAgentLo
     })
 
     if (response.toolCalls.length === 0) {
+      if (response.content.trim().length === 0) {
+        emptyFinalResponseCount += 1
+        if (emptyFinalResponseCount > 1) {
+          return {
+            finalText: 'Model returned an empty response. Try rephrasing the request or asking for a smaller step.',
+            toolCallCount
+          }
+        }
+
+        messages.push({ role: 'assistant', content: response.content })
+        messages.push({
+          role: 'user',
+          content: 'Your previous response was empty. Provide a clear final answer using the tool results above, or call another tool if needed.'
+        })
+        continue
+      }
+
       return { finalText: response.content, toolCallCount }
     }
 
+    emptyFinalResponseCount = 0
     messages.push({
       role: 'assistant',
       content: response.content,

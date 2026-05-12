@@ -39,17 +39,23 @@ interface ChatCompletionResponse {
 }
 
 export async function callModel(input: CallModelInput): Promise<ModelResponse> {
-  const response = await fetch(`${input.config.model.baseUrl}/chat/completions`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      model: input.config.model.model,
-      temperature: input.config.model.temperature,
-      messages: input.messages,
-      tools: input.tools,
-      tool_choice: 'auto'
+  let response: Response
+  try {
+    response = await fetch(`${input.config.model.baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: input.config.model.model,
+        temperature: input.config.model.temperature,
+        messages: input.messages,
+        tools: input.tools,
+        tool_choice: 'auto'
+      })
     })
-  })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    throw new Error(`LLM request failed: ${message}`)
+  }
 
   if (!response.ok) {
     throw new Error(`LLM request failed with HTTP ${response.status}: ${await response.text()}`)

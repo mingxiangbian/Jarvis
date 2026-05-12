@@ -72,4 +72,74 @@ describe('runAgentLoop', () => {
       content: 'tool output'
     })
   })
+
+  it('asks the model for a final answer when it returns blank text after tools', async () => {
+    let calls = 0
+    const seenMessages: ChatMessage[][] = []
+    const result = await runAgentLoop({
+      config: createDefaultConfig('/tmp/project'),
+      systemPrompt: 'system',
+      userPrompt: 'echo',
+      tools: [echoTool],
+      callModel: async ({ messages }): Promise<ModelResponse> => {
+        calls += 1
+        seenMessages.push([...messages])
+        if (calls === 1) {
+          return {
+            content: '',
+            toolCalls: [
+              {
+                id: 'call-1',
+                type: 'function',
+                function: { name: 'echo', arguments: '{"text":"tool output"}' }
+              }
+            ]
+          }
+        }
+        if (calls === 2) {
+          return { content: '\n\n', toolCalls: [] }
+        }
+        return { content: 'final after retry', toolCalls: [] }
+      }
+    })
+
+    expect(result.finalText).toBe('final after retry')
+    expect(result.toolCallCount).toBe(1)
+    expect(seenMessages[2]?.at(-1)).toEqual({
+      role: 'user',
+      content: 'Your previous response was empty. Provide a clear final answer using the tool results above, or call another tool if needed.'
+    })
+  })
+
+  it('allows another blank final retry after new tool results', async () => {
+    let calls = 0
+    const result = await runAgentLoop({
+      config: createDefaultConfig('/tmp/project'),
+      systemPrompt: 'system',
+      userPrompt: 'echo',
+      tools: [echoTool],
+      callModel: async (): Promise<ModelResponse> => {
+        calls += 1
+        if (calls === 1 || calls === 3) {
+          return {
+            content: '',
+            toolCalls: [
+              {
+                id: `call-${calls}`,
+                type: 'function',
+                function: { name: 'echo', arguments: '{"text":"tool output"}' }
+              }
+            ]
+          }
+        }
+        if (calls === 2 || calls === 4) {
+          return { content: '\n\n', toolCalls: [] }
+        }
+        return { content: 'final after second retry', toolCalls: [] }
+      }
+    })
+
+    expect(result.finalText).toBe('final after second retry')
+    expect(result.toolCallCount).toBe(2)
+  })
 })
