@@ -4,13 +4,14 @@ import chalk from 'chalk'
 import { runAgentLoop } from './agent-loop.js'
 import type { AppConfig } from './config.js'
 import type { CallModelInput, ChatMessage, ModelResponse } from './llm-client.js'
-import type { Tool } from './tools/types.js'
+import type { Tool, ToolContext } from './tools/types.js'
 
 export interface RunReplTurnInput {
   config: AppConfig
   messages: ChatMessage[]
   input: string
   tools: Tool<unknown>[]
+  toolContext?: ToolContext
   callModel?: (input: CallModelInput) => Promise<ModelResponse>
 }
 
@@ -29,6 +30,7 @@ export async function runReplTurn(input: RunReplTurnInput): Promise<RunReplTurnR
     config: input.config,
     messages: input.messages,
     tools: input.tools,
+    toolContext: input.toolContext,
     callModel: input.callModel
   })
 
@@ -41,6 +43,10 @@ export async function runRepl(inputConfig: {
   tools: Tool<unknown>[]
 }): Promise<void> {
   const messages: ChatMessage[] = [{ role: 'system', content: inputConfig.systemPrompt }]
+  const toolContext: ToolContext = {
+    config: inputConfig.config,
+    trackedFiles: new Set<string>()
+  }
   const rl = createInterface({ input, output })
 
   try {
@@ -50,7 +56,8 @@ export async function runRepl(inputConfig: {
         config: inputConfig.config,
         messages,
         input: line,
-        tools: inputConfig.tools
+        tools: inputConfig.tools,
+        toolContext
       })
 
       if (result.exit) {

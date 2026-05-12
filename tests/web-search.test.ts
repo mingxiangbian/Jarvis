@@ -108,4 +108,17 @@ describe('webSearchTool', () => {
     expect(result.ok).toBe(false)
     expect(result.content).toContain('network down')
   })
+
+  it('returns ok false when DuckDuckGo returns a challenge page without results', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => '<html><body>Unfortunately, bots use DuckDuckGo too.</body></html>'
+    }))
+
+    const result = await webSearchTool.execute({ query: 'agent tools' }, context())
+
+    expect(result.ok).toBe(false)
+    expect(result.content).toContain('no search results')
+  })
 })

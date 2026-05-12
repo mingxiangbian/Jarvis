@@ -7,6 +7,7 @@ import type { Tool, ToolContext } from './tools/types.js'
 interface RunAgentLoopBaseInput {
   config: AppConfig
   tools: Tool<unknown>[]
+  toolContext?: ToolContext
   callModel?: (input: {
     config: AppConfig
     messages: ChatMessage[]
@@ -36,7 +37,7 @@ export interface RunAgentLoopResult {
 export async function runAgentLoop(input: RunAgentLoopInput): Promise<RunAgentLoopResult> {
   const messages = input.messages ?? buildInitialMessages(input.systemPrompt, input.userPrompt)
   const callModel = input.callModel ?? defaultCallModel
-  const context: ToolContext = {
+  const context: ToolContext = input.toolContext ?? {
     config: input.config,
     trackedFiles: new Set<string>()
   }

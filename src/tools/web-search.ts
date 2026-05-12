@@ -60,6 +60,10 @@ function parseResults(html: string): SearchResult[] {
   return results
 }
 
+function hasChallengePage(html: string): boolean {
+  return html.includes('Unfortunately, bots use DuckDuckGo too')
+}
+
 async function fetchWithTimeout(url: string): Promise<Response> {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS)
@@ -95,7 +99,12 @@ export const webSearchTool: Tool<z.infer<typeof schema>> = {
         return { ok: false, content: `DuckDuckGo request failed with status ${response.status}` }
       }
 
-      const results = parseResults(await response.text())
+      const html = await response.text()
+      const results = parseResults(html)
+      if (results.length === 0 || hasChallengePage(html)) {
+        return { ok: false, content: 'DuckDuckGo request returned no search results' }
+      }
+
       return {
         ok: true,
         content: JSON.stringify({ results }, null, 2),
