@@ -5,6 +5,7 @@ import chalk from 'chalk'
 import { Command } from 'commander'
 import { runAgentLoop } from './agent-loop.js'
 import { createDefaultConfig } from './config.js'
+import { loadInstructionsIfExists } from './memory.js'
 import { runRepl } from './repl.js'
 import { createCoreTools } from './tools/index.js'
 
@@ -29,8 +30,12 @@ async function main(): Promise<void> {
 
   const currentFile = fileURLToPath(import.meta.url)
   const systemPromptPath = resolve(dirname(currentFile), 'prompts/system.md')
-  const systemPrompt = await readFile(systemPromptPath, 'utf8')
   const config = createDefaultConfig(resolve(options.cwd))
+  const baseSystemPrompt = await readFile(systemPromptPath, 'utf8')
+  const projectInstructions = await loadInstructionsIfExists(config.cwd)
+  const systemPrompt = projectInstructions
+    ? `${baseSystemPrompt.trimEnd()}\n\n${projectInstructions}`
+    : baseSystemPrompt
   const tools = createCoreTools()
 
   if (options.repl) {
