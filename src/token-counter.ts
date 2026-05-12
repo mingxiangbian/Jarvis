@@ -21,7 +21,18 @@ export function estimateTokens(text: string): number {
 }
 
 export function estimateTokensForMessages(messages: ChatMessage[]): number {
-  return messages.reduce((total, message) => total + estimateTokens(message.content), 0)
+  return messages.reduce((total, message) => total + estimateTokens(messageText(message)), 0)
+}
+
+function messageText(message: ChatMessage): string {
+  const parts = [message.content]
+  if (message.tool_call_id) {
+    parts.push(message.tool_call_id)
+  }
+  if (message.tool_calls) {
+    parts.push(JSON.stringify(message.tool_calls))
+  }
+  return parts.join('\n')
 }
 
 function isCjk(codePoint: number): boolean {

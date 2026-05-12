@@ -32,4 +32,25 @@ describe('estimateTokensForMessages', () => {
 
     expect(estimateTokensForMessages(messages)).toBe(3)
   })
+
+  it('includes assistant tool call payloads when content is empty', () => {
+    const messages: ChatMessage[] = [
+      {
+        role: 'assistant',
+        content: '',
+        tool_calls: [
+          {
+            id: 'call_1',
+            type: 'function',
+            function: {
+              name: 'file_read',
+              arguments: '{"path":"/tmp/example.txt"}'
+            }
+          }
+        ]
+      }
+    ]
+
+    expect(estimateTokensForMessages(messages)).toBeGreaterThan(0)
+  })
 })
