@@ -50,6 +50,14 @@ npm test
 npm run typecheck
 ```
 
+> **Q: package.json、tsconfig.json、vitest.config.ts 分别干什么？**
+>
+> `package.json` — 声明项目名、入口类型 (`"type":"module"`)、依赖 (zod/chalk/commander)、脚本 (dev/test/typecheck)。
+>
+> `tsconfig.json` — 告诉 TypeScript 编译器：目标 ES2022、NodeNext 模块、严格模式、源文件在哪 (`include: ["src/**/*.ts"]`)。
+>
+> `vitest.config.ts` — 告诉 Vitest 测试运行器：用 Node 环境跑、全局暴露 `describe`/`expect`/`it`。
+
 ### 第二步：配置和工具类型
 
 `src/config.ts` 定义模型端点、温度、工具调用上限、bash 超时、可写目录和危险命令 deny-list。
@@ -61,6 +69,12 @@ name + description + JSON schema + Zod schema + safety flags + execute()
 ```
 
 原则：模型输出不可信，程序必须校验后再执行。
+
+> **Q: Zod 校验是什么？**
+>
+> 模型返回的工具参数是 JSON 字符串。JSON.parse 只能保证它是合法 JSON，不保证字段类型正确、不缺必填项。
+>
+> Zod 是 TypeScript 的运行时校验库。你定义一个 schema（如 `{ command: z.string().min(1) }`），然后 `schema.safeParse(data)` 就能在运行时拦住错误参数，并给出明确错误信息。Zod schema 同时自动推导出 TypeScript 类型，一份定义同时获得编译期类型检查和运行时校验。
 
 ### 第三步：工具注册和执行
 
@@ -80,6 +94,16 @@ name + description + JSON schema + Zod schema + safety flags + execute()
 1. `file_read`：读取 UTF-8 文件，加行号，并记录真实路径。
 2. `file_write`：只允许写入配置的 writable roots。
 3. `file_edit`：只允许对读过的文件做精确字符串替换。
+
+> **Q: file_read 对超过 500 行的文件截断（头 100 + 尾 50），会不会影响模型理解？**
+>
+> 会。但这是刻意取舍：
+>
+> 模型处理代码时，真正需要"看全"的场景很少——通常是找某个函数定义（grep 定位行号后读到就行）或理解文件结构（头 100 行基本覆盖了 import 和顶层声明）。大多数超大文件是自动生成的、数据文件、或锁文件，模型不需要看全。
+>
+> 如果模型真的需要更多内容，截断标记 `[output compacted]` 会告诉它文件不完整。它可以调用 `grep` 搜索特定位置，或者用户手动让它读特定行范围（当前 v1 未实现行范围参数，但架构上 file_read 返回了行号，模型可以基于行号做推理）。
+>
+> 底线：500 行够覆盖绝大多数真实需求，丢了中间行对理解项目结构的影响通常可忽略。但如果你发现实际使用中模型频繁因为截断而误解文件，上调 `readMaxInlineLines` 即可——它在 config 里是明确的配置项，不是 magic number。
 
 `file_edit` 的 read-before-edit 约束很重要：
 
@@ -265,6 +289,26 @@ bash -n server/start.sh
 8. `src/agent-loop.ts`：理解循环控制。
 9. `src/main.ts`：理解 CLI 如何把所有模块接起来。
 
+> **Q: 每个文件做什么，为什么是这个顺序？**
+>
+> **1. `src/tools/types.ts`** — 定义 `Tool<TArgs>` 统一接口。所有工具共有的结构：名称、描述、JSON Schema、Zod Schema、4 个安全属性、`execute()` 函数。放在第一是因为后面所有文件都依赖这个接口。
+>
+> **2. `src/config.ts`** — 集中管理所有可配置项：模型 URL、温度、工具调用上限、bash 超时、bash deny-list、可写目录。`createDefaultConfig()` 用一个函数返回完整默认配置。放第二是因为config是第二基础——每个工具执行时都要读取它。
+>
+> **3. `src/tools/index.ts`** — 工具注册中心和执行分发器。`createCoreTools()` 返回 7 个工具实例；`toolDefinitions()` 把它们转成 OpenAI API 需要的格式；`executeToolCall()` 做查找→JSON 解析→Zod 校验→执行。放第三说明工具怎么从"定义"变成"可调用"。
+>
+> **4. `src/tools/file-read.ts`** — 读文件 + 加行号 + 把真实路径写入 `trackedFiles`。大文件自动截断（头100行+尾50行）。放第四因为它是最简单的一个具体工具，同时引入了 `trackedFiles` 机制。
+>
+> **5. `src/tools/file-edit.ts`** — 精确字符串替换 + read-before-edit 硬约束 + old_string 唯一性检查 + writable root 边界。放第五因为它依赖第 4 步的 `trackedFiles`，把"模型不可信"变成了系统级硬约束。
+>
+> **6. `src/llm-client.ts`** — 向 `POST /v1/chat/completions` 发请求，带上 `messages` + `tools` + `tool_choice: auto`。返回 content 和 tool_calls。放第六说明 Agent 怎么和模型通信。
+>
+> **7. `src/context.ts`** — `buildInitialMessages()` 把 system prompt 放第一条消息。`compactToolResult()` 对超长工具输出保留头尾。放第七说明消息如何被整理成模型能消费的格式。
+>
+> **8. `src/agent-loop.ts`** — 核心循环：调模型 → 没 tool call 就返回文本 → 有 tool call 就执行工具 → 结果回填 → 继续循环。加上空响应重试和 `maxToolCallsPerTurn` 保护。放第八因为它是把前面 1-7 全部串起来的调度引擎。
+>
+> **9. `src/main.ts`** — CLI 入口，最薄的一层。读取命令行 prompt + 读取 system.md + 创建 config + 注册 7 个工具 + 调 `runAgentLoop()` + 打印结果。放最后因为它只是接线，没有业务逻辑。
+
 ## 7. 下一步可以扩展什么
 
 先不要急着加功能。v1 稳定后，再考虑：
@@ -279,3 +323,21 @@ bash -n server/start.sh
 
 1. 这个能力是否真的解决当前用户任务？
 2. 本地 9B 模型是否能稳定选择和填写这个工具？
+
+## 8. 已知缺陷
+
+**Bug：grep 带 `g` 标志的正则会漏匹配**
+
+`src/tools/grep.ts:73` 用同一个 `RegExp` 实例在多行上调用 `.test()`。如果用户传入带 `g` 标志的正则（如 `pattern: "foo/g"`），`.test()` 是有状态的——匹配成功后 `lastIndex` 会前移，下一行测试时从错误位置开始，导致漏掉后续匹配。解法：每次循环前重置 `lastIndex = 0`，或改用 `lines[index].match(regex)`。
+
+**设计问题：`maxToolCallsPerTurn` 实际是全局上限**
+
+配置名叫 `maxToolCallsPerTurn`（每轮上限），但 `agent-loop.ts` 的 while 条件用同一个计数器累计整个会话的所有工具调用。实际行为：会话总计 10 次工具调用就停。对简单任务没问题，但如果用户一轮里反复追加指令（"再跑一下测试""再改个地方"），累计到 10 次就停了。需要决定：要么改名 `maxToolCallsPerSession`，要么改为真正每轮重置。
+
+**llm-client 没有请求超时**
+
+`fetch()` 未传 `AbortSignal`。如果 MLX Server 卡住（模型加载失败但端口已开），Agent 会无限等待。应加 180s 超时。
+
+**main.ts 没有顶层 try-catch**
+
+`runAgentLoop()` 抛出的异常会变成未处理的 Promise rejection，CLI 直接崩溃而不是打印可读的错误信息。
