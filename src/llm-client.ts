@@ -79,25 +79,18 @@ export async function callModel(input: CallModelInput): Promise<ModelResponse> {
 }
 
 async function requestCompletion(input: CallModelInput): Promise<Response> {
-  let response: Response
-  try {
-    response = await fetch(`${input.config.model.baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      signal: AbortSignal.timeout(input.config.llmRequestTimeoutMs),
-      body: JSON.stringify({
-        model: input.config.model.model,
-        temperature: input.config.model.temperature,
-        messages: input.messages,
-        tools: input.tools,
-        tool_choice: 'auto'
-      })
+  return fetch(`${input.config.model.baseUrl}/chat/completions`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    signal: AbortSignal.timeout(input.config.llmRequestTimeoutMs),
+    body: JSON.stringify({
+      model: input.config.model.model,
+      temperature: input.config.model.temperature,
+      messages: input.messages,
+      tools: input.tools,
+      tool_choice: 'auto'
     })
-  } catch (error) {
-    throw error
-  }
-
-  return response
+  })
 }
 
 function isRetryableStatus(status: number): boolean {

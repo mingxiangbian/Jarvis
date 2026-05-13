@@ -107,6 +107,36 @@ describe('webSearchTool', () => {
     ])
   })
 
+  it('skips results with malformed links instead of failing the whole search', async () => {
+    const html = `
+      <div class="result">
+        <a class="result__a" href="http://[not-a-valid-url">Bad result</a>
+        <a class="result__snippet">Bad snippet.</a>
+      </div>
+      <div class="result">
+        <a class="result__a" href="https://example.com/good">Good result</a>
+        <a class="result__snippet">Good snippet.</a>
+      </div>
+    `
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => html
+    }))
+
+    const result = await webSearchTool.execute({ query: 'mixed links' }, context())
+
+    expect(result.ok).toBe(true)
+    expect(result.metadata?.results).toEqual([
+      {
+        title: 'Good result',
+        link: 'https://example.com/good',
+        snippet: 'Good snippet.'
+      }
+    ])
+  })
+
   it('returns ok false when fetch fails', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('network down')))
 

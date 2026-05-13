@@ -8,6 +8,7 @@ import type { Tool, ToolContext } from './tools/types.js'
 
 export interface RunReplTurnInput {
   config: AppConfig
+  /** Mutable session history. runReplTurn appends the user turn and agent responses in place. */
   messages: ChatMessage[]
   input: string
   tools: Tool<unknown>[]

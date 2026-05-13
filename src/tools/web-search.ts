@@ -27,11 +27,15 @@ function textFromHtml(value: string): string {
   return decodeHtml(value.replace(/<[^>]*>/g, '')).replace(/\s+/g, ' ').trim()
 }
 
-function normalizeLink(link: string): string {
+function normalizeLink(link: string): string | null {
   const decoded = decodeHtml(link)
-  const url = new URL(decoded, DDG_URL)
-  const unwrapped = url.searchParams.get('uddg')
-  return unwrapped ?? url.toString()
+  try {
+    const url = new URL(decoded, DDG_URL)
+    const unwrapped = url.searchParams.get('uddg')
+    return unwrapped ?? url.toString()
+  } catch {
+    return null
+  }
 }
 
 function parseResults(html: string): SearchResult[] {
@@ -46,9 +50,14 @@ function parseResults(html: string): SearchResult[] {
     }
 
     const snippetMatch = block.match(/<a[^>]*class="[^"]*\bresult__snippet\b[^"]*"[^>]*>([\s\S]*?)<\/a>/)
+    const link = normalizeLink(titleMatch[1])
+    if (!link) {
+      continue
+    }
+
     results.push({
       title: textFromHtml(titleMatch[2]),
-      link: normalizeLink(titleMatch[1]),
+      link,
       snippet: snippetMatch ? textFromHtml(snippetMatch[1]) : ''
     })
 
