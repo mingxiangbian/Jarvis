@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 import { createDefaultConfig } from '../src/config.js'
 
 describe('createDefaultConfig', () => {
@@ -30,6 +32,11 @@ describe('createDefaultConfig', () => {
     expect(config.collapseThreshold).toBe(0.6)
     expect(config.snipKeepRounds).toBe(15)
     expect(config.microcompactKeepRecentRounds).toBe(5)
+    expect(config.userCcLocalDir).toBe(join(homedir(), '.cc-local'))
+    expect(config.dailyCompactThreshold).toBe(500)
+    expect(config.dailyLoadLines).toBe(200)
+    expect(config.memoryMaxLines).toBe(200)
+    expect(config.memoryMaxLineLength).toBe(150)
     expect(config.writableRoots).toEqual(['/tmp/project'])
   })
 

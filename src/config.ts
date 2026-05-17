@@ -1,3 +1,6 @@
+import { homedir } from 'node:os'
+import { join } from 'node:path'
+
 export interface ModelConfig {
   baseUrl: string
   model: string
@@ -15,6 +18,11 @@ export interface AppConfig {
   collapseThreshold: number
   snipKeepRounds: number
   microcompactKeepRecentRounds: number
+  userCcLocalDir: string
+  dailyCompactThreshold: number
+  dailyLoadLines: number
+  memoryMaxLines: number
+  memoryMaxLineLength: number
   readMaxInlineLines: number
   grepMaxMatches: number
   bashTimeoutMs: number
@@ -41,6 +49,11 @@ export function createDefaultConfig(cwd: string): AppConfig {
     collapseThreshold: 0.6,
     snipKeepRounds: 15,
     microcompactKeepRecentRounds: 5,
+    userCcLocalDir: join(homedir(), '.cc-local'),
+    dailyCompactThreshold: 500,
+    dailyLoadLines: 200,
+    memoryMaxLines: 200,
+    memoryMaxLineLength: 150,
     readMaxInlineLines: 500,
     grepMaxMatches: 30,
     bashTimeoutMs: 120_000,
