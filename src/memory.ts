@@ -42,14 +42,7 @@ export async function loadRuleStack(cwd: string, userCcLocalDir: string): Promis
     throw error
   }
 
-  if (!isPathInside(homeRealPath, cwdRealPath) || cwdRealPath === homeRealPath) {
-    return sections.join('\n\n')
-  }
-
-  const relativeParts = relative(homeRealPath, cwdRealPath).split('/').filter(Boolean)
-  let currentDir = homeRealPath
-  for (const part of relativeParts) {
-    currentDir = join(currentDir, part)
+  for (const currentDir of getRuleStackDirectories(cwdRealPath, homeRealPath)) {
     const rule = await readRegularTextFileIfExists(join(currentDir, '.cc-local', 'Rule.md'))
     if (rule !== '') {
       sections.push(`## Rule: ${currentDir}\n\n${rule}`)
@@ -131,7 +124,12 @@ export async function loadDaily(cwd: string, lines: number): Promise<string> {
 }
 
 export async function loadDailyRaw(cwd: string): Promise<string> {
-  const filePath = join(cwd, '.cc-local', 'memory', 'daily.md')
+  const memoryDir = await getReadableProjectMemoryDir(cwd)
+  if (memoryDir === null) {
+    return ''
+  }
+
+  const filePath = join(memoryDir, 'daily.md')
   try {
     const stats = await lstat(filePath)
     if (stats.isSymbolicLink() || !stats.isFile()) {
@@ -149,7 +147,8 @@ export async function loadDailyRaw(cwd: string): Promise<string> {
 }
 
 export async function loadProjectMemories(cwd: string): Promise<string> {
-  return loadMemoryScope(join(cwd, '.cc-local', 'memory'), 'Project Memory')
+  const memoryDir = await getReadableProjectMemoryDir(cwd)
+  return memoryDir === null ? '' : loadMemoryScope(memoryDir, 'Project Memory')
 }
 
 export async function loadGlobalMemories(userCcLocalDir: string): Promise<string> {
@@ -227,6 +226,18 @@ async function readRegularTextFileIfExists(filePath: string): Promise<string> {
 
     throw error
   }
+}
+
+function getRuleStackDirectories(cwdRealPath: string, homeRealPath: string): string[] {
+  if (cwdRealPath === homeRealPath) {
+    return []
+  }
+
+  if (isPathInside(homeRealPath, cwdRealPath)) {
+    return getAncestorDirectories(cwdRealPath, homeRealPath)
+  }
+
+  return getAncestorDirectories(cwdRealPath)
 }
 
 export async function loadRecentSummaries(cwd: string, count: number): Promise<string> {
@@ -430,10 +441,40 @@ export async function updateMemoryIndex(
   await appendMemoryIndexEntry(memoryIndexPath, existingIndex, entry)
 }
 
-async function getWritableMemoryDir(cwd: string): Promise<string> {
+export async function getWritableMemoryDir(cwd: string): Promise<string> {
   const cwdRealPath = await realpath(cwd)
   const ccLocalDir = await ensureWritableDirectory(join(cwdRealPath, '.cc-local'), cwdRealPath)
   return ensureWritableDirectory(join(ccLocalDir, 'memory'), ccLocalDir)
+}
+
+async function getReadableProjectMemoryDir(cwd: string): Promise<string | null> {
+  const cwdRealPath = await realpath(cwd)
+  const ccLocalDir = await getReadableDirectoryOrNull(join(cwdRealPath, '.cc-local'), cwdRealPath)
+  if (ccLocalDir === null) {
+    return null
+  }
+
+  return getReadableDirectoryOrNull(join(ccLocalDir, 'memory'), ccLocalDir)
+}
+
+async function getReadableDirectoryOrNull(dirPath: string, parentRealPath: string): Promise<string | null> {
+  let stats
+  try {
+    stats = await lstat(dirPath)
+  } catch (error) {
+    if (isMissingFileError(error)) {
+      return null
+    }
+
+    throw error
+  }
+
+  if (stats.isSymbolicLink() || !stats.isDirectory()) {
+    return null
+  }
+
+  const dirRealPath = await realpath(dirPath)
+  return isPathInside(parentRealPath, dirRealPath) ? dirRealPath : null
 }
 
 async function ensureWritableDirectory(dirPath: string, parentRealPath: string): Promise<string> {
@@ -622,7 +663,27 @@ async function validateCompactedMemoryEntries(
   const memoryIndexPath = await getWritableFilePath(join(memoryDir, 'MEMORY.md'), memoryDir)
   const existingIndex = await readMemoryIndexIfExists(memoryIndexPath)
   const existingLines = existingIndex.split(/\r?\n/).filter((line) => line.trim() !== '').length
-  return existingLines + entries.length > config.memoryMaxLines ? 'MEMORY.md is full' : null
+  if (existingLines + entries.length > config.memoryMaxLines) {
+    return 'MEMORY.md is full'
+  }
+
+  for (const entry of entries) {
+    const memoryFilePath = resolve(memoryDir, entry.file)
+    if (!isPathInside(memoryDir, memoryFilePath)) {
+      return 'Memory file must stay inside memory directory'
+    }
+
+    try {
+      await lstat(memoryFilePath)
+      return `Memory file already exists: ${entry.file}`
+    } catch (error) {
+      if (!isMissingFileError(error)) {
+        return error instanceof Error ? error.message : 'Invalid memory file target'
+      }
+    }
+  }
+
+  return null
 }
 
 async function archiveAndClearDaily(cwd: string, dailyContent: string): Promise<void> {
@@ -690,6 +751,21 @@ function parseSessionFilename(filename: string): { date: string; suffix: number 
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
+}
+
+function getAncestorDirectories(cwdRealPath: string, stopExclusive?: string): string[] {
+  const dirs: string[] = []
+  let current = cwdRealPath
+  while (current !== stopExclusive) {
+    dirs.push(current)
+    const parent = dirname(current)
+    if (parent === current) {
+      break
+    }
+    current = parent
+  }
+
+  return dirs.reverse()
 }
 
 function isMissingFileError(error: unknown): boolean {

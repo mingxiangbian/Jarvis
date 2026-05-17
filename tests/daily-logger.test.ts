@@ -152,4 +152,15 @@ describe('appendDaily', () => {
     await expect(appendDaily(root, ['[09:08] bash -> ok'])).rejects.toThrow(/symlink|ELOOP/)
     await expect(readFile(join(outside, 'daily.md'), 'utf8')).resolves.toBe('outside\n')
   })
+
+  it('refuses to append through a symlinked .cc-local directory', async () => {
+    const root = await createTempDir()
+    const outsideCcLocal = await createTempDir()
+    await symlink(outsideCcLocal, join(root, '.cc-local'))
+
+    await expect(appendDaily(root, ['[09:08] bash -> ok'])).rejects.toThrow(/symlink/)
+    await expect(readFile(join(outsideCcLocal, 'memory', 'daily.md'), 'utf8')).rejects.toMatchObject({
+      code: 'ENOENT'
+    })
+  })
 })

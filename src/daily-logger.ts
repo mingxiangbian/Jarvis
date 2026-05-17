@@ -1,6 +1,7 @@
 import { constants } from 'node:fs'
-import { mkdir, open } from 'node:fs/promises'
+import { open } from 'node:fs/promises'
 import { join } from 'node:path'
+import { getWritableMemoryDir } from './memory.js'
 
 export interface ToolFactInput {
   toolName: string
@@ -27,8 +28,7 @@ export async function appendDaily(cwd: string, chunks: string[]): Promise<void> 
     return
   }
 
-  const memoryDir = join(cwd, '.cc-local', 'memory')
-  await mkdir(memoryDir, { recursive: true })
+  const memoryDir = await getWritableMemoryDir(cwd)
   const dailyPath = join(memoryDir, 'daily.md')
   const file = await open(
     dailyPath,

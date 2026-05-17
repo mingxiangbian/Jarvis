@@ -120,7 +120,9 @@ describe('loadRuleStack', () => {
     await writeFile(join(userCcLocalDir, 'Rule.md'), 'Global rule.\n')
     await writeFile(join(outside, '.cc-local', 'Rule.md'), 'Outside rule.\n')
 
-    await expect(loadRuleStack(outside, userCcLocalDir)).resolves.toBe('## Global Rule\n\nGlobal rule.')
+    await expect(loadRuleStack(outside, userCcLocalDir)).resolves.toBe(
+      ['## Global Rule\n\nGlobal rule.', `## Rule: ${await realpath(outside)}\n\nOutside rule.`].join('\n\n')
+    )
   })
 
   it('ignores empty and symlinked Rule.md files', async () => {
@@ -263,6 +265,16 @@ describe('loadDaily', () => {
     await symlink(join(outside, 'daily.md'), join(memoryDir, 'daily.md'))
     await expect(loadDaily(root, 2)).resolves.toBe('')
   })
+
+  it('returns an empty string when .cc-local is a symlink outside the project', async () => {
+    const root = await createTempDir()
+    const outsideCcLocal = await createTempDir()
+    await mkdir(join(outsideCcLocal, 'memory'), { recursive: true })
+    await writeFile(join(outsideCcLocal, 'memory', 'daily.md'), 'outside\n')
+    await symlink(outsideCcLocal, join(root, '.cc-local'))
+
+    await expect(loadDaily(root, 2)).resolves.toBe('')
+  })
 })
 
 describe('scoped memory loading', () => {
@@ -294,6 +306,17 @@ describe('scoped memory loading', () => {
 
     await expect(loadProjectMemories(root)).resolves.toBe('## Project Memory: Project\n\nProject content.')
     await expect(loadGlobalMemories(userCcLocalDir)).resolves.toBe('## Global Memory: Global\n\nGlobal content.')
+  })
+
+  it('does not load project memories through a symlinked .cc-local directory', async () => {
+    const root = await createTempDir()
+    const outsideCcLocal = await createTempDir()
+    await mkdir(join(outsideCcLocal, 'memory'), { recursive: true })
+    await writeFile(join(outsideCcLocal, 'memory', 'MEMORY.md'), '- [Outside](outside.md) — outside\n')
+    await writeFile(join(outsideCcLocal, 'memory', 'outside.md'), 'Outside content.\n')
+    await symlink(outsideCcLocal, join(root, '.cc-local'))
+
+    await expect(loadProjectMemories(root)).resolves.toBe('')
   })
 
   it('returns empty string for missing global memory scope', async () => {
@@ -915,5 +938,33 @@ describe('compactMemories', () => {
 
     await expect(readFile(join(memoryDir, 'daily.md'), 'utf8')).resolves.toBe(dailyContent)
     await expect(readFile(join(memoryDir, 'long.md'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('does not partially write entries when a later target already exists', async () => {
+    const root = await createTempDir()
+    const memoryDir = await createMemoryDir(root)
+    const dailyContent = '[09:00] bash -> ok: npm test\n'
+    await writeFile(join(memoryDir, 'daily.md'), dailyContent)
+    await writeFile(join(memoryDir, 'existing.md'), 'Existing content.\n')
+    const config = createDefaultConfig(root)
+
+    await expect(
+      compactMemories({
+        cwd: root,
+        dailyContent,
+        config,
+        callModel: async () => ({
+          content: JSON.stringify([
+            { title: 'First', file: 'first.md', summary: 'first', content: 'Should not write.\n' },
+            { title: 'Existing', file: 'existing.md', summary: 'existing', content: 'Should fail.\n' }
+          ]),
+          toolCalls: []
+        })
+      })
+    ).resolves.toEqual({ ok: false, error: 'Memory file already exists: existing.md' })
+
+    await expect(readFile(join(memoryDir, 'daily.md'), 'utf8')).resolves.toBe(dailyContent)
+    await expect(readFile(join(memoryDir, 'first.md'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(join(memoryDir, 'MEMORY.md'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
   })
 })
