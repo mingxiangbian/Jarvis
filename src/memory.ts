@@ -120,7 +120,7 @@ export async function loadDaily(cwd: string, lines: number): Promise<string> {
     return ''
   }
 
-  const content = await readRegularTextFileIfExists(join(cwd, '.cc-local', 'memory', 'daily.md'))
+  const content = await loadDailyRaw(cwd)
   const dailyLines = content
     .split(/\r?\n/)
     .map((line) => line.trim())
@@ -128,6 +128,24 @@ export async function loadDaily(cwd: string, lines: number): Promise<string> {
     .slice(-lines)
 
   return dailyLines.length === 0 ? '' : `## Recent Daily Memory\n\n${dailyLines.join('\n')}`
+}
+
+export async function loadDailyRaw(cwd: string): Promise<string> {
+  const filePath = join(cwd, '.cc-local', 'memory', 'daily.md')
+  try {
+    const stats = await lstat(filePath)
+    if (stats.isSymbolicLink() || !stats.isFile()) {
+      return ''
+    }
+
+    return readFile(filePath, 'utf8')
+  } catch (error) {
+    if (isMissingFileError(error)) {
+      return ''
+    }
+
+    throw error
+  }
 }
 
 export async function loadProjectMemories(cwd: string): Promise<string> {
