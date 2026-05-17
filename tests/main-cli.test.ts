@@ -9,10 +9,14 @@ import { describe, expect, it } from 'vitest'
 const execFileAsync = promisify(execFile)
 
 describe('main CLI', () => {
-  it('appends cwd project instructions to the system prompt', async () => {
+  it('appends cwd project instructions, memories, and recent summaries to the system prompt', async () => {
     const root = await mkdtemp(join(tmpdir(), 'cc-local-main-'))
     await mkdir(join(root, '.cc-local'))
     await writeFile(join(root, '.cc-local', 'instructions.md'), 'Use TDD.\n')
+    await mkdir(join(root, '.cc-local', 'memory', 'sessions'), { recursive: true })
+    await writeFile(join(root, '.cc-local', 'memory', 'MEMORY.md'), '- [Code Style](style.md) — local style\n')
+    await writeFile(join(root, '.cc-local', 'memory', 'style.md'), 'Prefer small patches.\n')
+    await writeFile(join(root, '.cc-local', 'memory', 'sessions', '2026-05-12.md'), 'Previous session summary.\n')
 
     let requestBody: unknown
     const server = createServer((request, response) => {
@@ -51,7 +55,9 @@ describe('main CLI', () => {
         messages: [
           {
             role: 'system',
-            content: expect.stringMatching(/\n\n## Project Instructions\n\nUse TDD\.\n$/)
+            content: expect.stringMatching(
+              /\n\n## Project Instructions\n\nUse TDD\.\n\n\n## Memory: Code Style\n\nPrefer small patches\.\n\n## Previous Session: 2026-05-12\n\nPrevious session summary\.$/
+            )
           },
           { role: 'user', content: 'hello' }
         ]
