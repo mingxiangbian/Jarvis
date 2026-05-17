@@ -60,7 +60,7 @@ export function microcompactToolResults(
   const toolNamesById = new Map<string, string>()
 
   return messages.map((message, index) => {
-    if (message.tool_calls) {
+    if (message.role === 'assistant' && message.tool_calls) {
       for (const toolCall of message.tool_calls) {
         toolNamesById.set(toolCall.id, toolCall.function.name)
       }
@@ -76,6 +76,48 @@ export function microcompactToolResults(
       content: `[tool: ${toolName} - output truncated (${message.content.length} chars)]`
     }
   })
+}
+
+export function collapseConsecutiveCalls(messages: ChatMessage[]): ChatMessage[] {
+  const collapsedMessages: ChatMessage[] = []
+  let index = 0
+
+  while (index < messages.length) {
+    const firstCall = readToolCallPair(messages, index)
+    if (!firstCall) {
+      collapsedMessages.push(copyMessage(messages[index]))
+      index++
+      continue
+    }
+
+    const group = [firstCall]
+    let nextIndex = firstCall.nextIndex
+    while (nextIndex < messages.length) {
+      const nextCall = readToolCallPair(messages, nextIndex)
+      if (!nextCall || nextCall.name !== firstCall.name) {
+        break
+      }
+
+      group.push(nextCall)
+      nextIndex = nextCall.nextIndex
+    }
+
+    if (group.length >= collapseThresholdForTool(firstCall.name)) {
+      collapsedMessages.push({
+        role: 'assistant',
+        content: formatCollapsedToolCalls(firstCall.name, group)
+      })
+      index = nextIndex
+      continue
+    }
+
+    for (let messageIndex = index; messageIndex < nextIndex; messageIndex++) {
+      collapsedMessages.push(copyMessage(messages[messageIndex]))
+    }
+    index = nextIndex
+  }
+
+  return collapsedMessages
 }
 
 export async function compactHistory(
@@ -131,6 +173,54 @@ function recentRoundStart(messages: ChatMessage[], keepRecentRounds: number): nu
 
 function hasTextContent(message: ChatMessage): boolean {
   return message.content.trim().length > 0
+}
+
+interface ConsecutiveToolCall {
+  id: string
+  name: string
+  output: string
+  nextIndex: number
+}
+
+function readToolCallPair(messages: ChatMessage[], index: number): ConsecutiveToolCall | undefined {
+  const assistantMessage = messages[index]
+  const toolMessage = messages[index + 1]
+  const toolCall = assistantMessage.tool_calls?.[0]
+
+  if (
+    assistantMessage.role !== 'assistant' ||
+    hasTextContent(assistantMessage) ||
+    assistantMessage.tool_calls?.length !== 1 ||
+    !toolCall ||
+    toolMessage?.role !== 'tool' ||
+    toolMessage.tool_call_id !== toolCall.id
+  ) {
+    return undefined
+  }
+
+  return {
+    id: toolCall.id,
+    name: toolCall.function.name,
+    output: toolMessage.content,
+    nextIndex: index + 2
+  }
+}
+
+function collapseThresholdForTool(toolName: string): number {
+  if (toolName === 'bash') {
+    return 2
+  }
+  if (toolName === 'grep' || toolName === 'web_search' || toolName === 'file_read') {
+    return 3
+  }
+  return 4
+}
+
+function formatCollapsedToolCalls(toolName: string, group: ConsecutiveToolCall[]): string {
+  return [
+    `[collapsed ${group.length} consecutive ${toolName} tool calls]`,
+    ...group.map((call) => `- ${call.id}: ${call.output.slice(0, 200)}`)
+  ].join('\n')
 }
 
 function copyMessage(message: ChatMessage): ChatMessage {
