@@ -359,11 +359,17 @@ describe('runAgentLoop', () => {
   it('executes tool calls and feeds the result back to the model', async () => {
     let calls = 0
     const seenMessages: ChatMessage[][] = []
+    const dailyChunks: string[][] = []
     const result = await runAgentLoop({
       config: createDefaultConfig('/tmp/project'),
       systemPrompt: 'system',
       userPrompt: 'echo',
       tools: [echoTool],
+      dailyLogger: {
+        appendDaily: async (_cwd, chunks) => {
+          dailyChunks.push(chunks)
+        }
+      },
       callModel: async ({ messages }): Promise<ModelResponse> => {
         calls += 1
         seenMessages.push([...messages])
@@ -390,6 +396,80 @@ describe('runAgentLoop', () => {
       tool_call_id: 'call-1',
       content: 'tool output'
     })
+    expect(dailyChunks).toHaveLength(1)
+    expect(dailyChunks[0]?.[0]).toMatch(/^\[\d{2}:\d{2}\] echo -> ok$/)
+  })
+
+  it('logs failed tool calls to daily memory', async () => {
+    const config = createDefaultConfig('/tmp/project')
+    const dailyChunks: string[][] = []
+    let calls = 0
+
+    const result = await runAgentLoop({
+      config,
+      systemPrompt: 'system',
+      userPrompt: 'search',
+      tools: [failingWebSearchTool],
+      dailyLogger: {
+        appendDaily: async (_cwd, chunks) => {
+          dailyChunks.push(chunks)
+        }
+      },
+      callModel: async (): Promise<ModelResponse> => {
+        calls += 1
+        if (calls === 1) {
+          return {
+            content: '',
+            toolCalls: [
+              {
+                id: 'call-search',
+                type: 'function',
+                function: { name: 'web_search', arguments: '{"query":"latest docs"}' }
+              }
+            ]
+          }
+        }
+        return { content: 'done', toolCalls: [] }
+      }
+    })
+
+    expect(result.finalText).toBe('done')
+    expect(dailyChunks).toHaveLength(1)
+    expect(dailyChunks[0]?.[0]).toMatch(/^\[\d{2}:\d{2}\] web_search -> failed latest docs$/)
+  })
+
+  it('continues when daily memory logging fails', async () => {
+    let calls = 0
+    const result = await runAgentLoop({
+      config: createDefaultConfig('/tmp/project'),
+      systemPrompt: 'system',
+      userPrompt: 'echo',
+      tools: [echoTool],
+      dailyLogger: {
+        appendDaily: async () => {
+          throw new Error('daily unavailable')
+        }
+      },
+      callModel: async (): Promise<ModelResponse> => {
+        calls += 1
+        if (calls === 1) {
+          return {
+            content: '',
+            toolCalls: [
+              {
+                id: 'call-1',
+                type: 'function',
+                function: { name: 'echo', arguments: '{"text":"tool output"}' }
+              }
+            ]
+          }
+        }
+        return { content: 'done despite logging failure', toolCalls: [] }
+      }
+    })
+
+    expect(result.finalText).toBe('done despite logging failure')
+    expect(result.toolCallCount).toBe(1)
   })
 
   it('asks the model for a final answer when it returns blank text after tools', async () => {

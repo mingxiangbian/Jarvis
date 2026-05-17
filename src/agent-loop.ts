@@ -7,6 +7,7 @@ import {
   snipMessages
 } from './context.js'
 import type { AppConfig } from './config.js'
+import { appendDaily, extractFactFromToolCall } from './daily-logger.js'
 import { callModel as defaultCallModel, type ChatMessage, type ModelResponse } from './llm-client.js'
 import { estimateTokensForMessages } from './token-counter.js'
 import { executeToolCall, toolDefinitions } from './tools/index.js'
@@ -19,6 +20,9 @@ interface RunAgentLoopBaseInput {
   config: AppConfig
   tools: Tool<unknown>[]
   toolContext?: ToolContext
+  dailyLogger?: {
+    appendDaily: (cwd: string, chunks: string[]) => Promise<void>
+  }
   callModel?: (input: {
     config: AppConfig
     messages: ChatMessage[]
@@ -126,6 +130,7 @@ export async function runAgentLoop(input: RunAgentLoopInput): Promise<RunAgentLo
     emptyFinalResponseCount = 0
     const remainingToolCalls = input.config.maxToolCallsPerTurn - toolCallCount
     const toolCallsToRun = response.toolCalls.slice(0, remainingToolCalls)
+    const dailyFacts: string[] = []
     messages.push({
       role: 'assistant',
       content: response.content,
@@ -150,6 +155,15 @@ export async function runAgentLoop(input: RunAgentLoopInput): Promise<RunAgentLo
             input.tools,
             context
           )
+      const dailyFact = extractFactFromToolCall({
+        toolName: toolCall.function.name,
+        argumentsText: toolCall.function.arguments,
+        ok: result.ok,
+        content: result.content
+      })
+      if (dailyFact !== null) {
+        dailyFacts.push(dailyFact)
+      }
 
       messages.push({
         role: 'tool',
@@ -163,6 +177,14 @@ export async function runAgentLoop(input: RunAgentLoopInput): Promise<RunAgentLo
 
       if (toolCallCount >= input.config.maxToolCallsPerTurn) {
         break
+      }
+    }
+
+    if (dailyFacts.length > 0) {
+      try {
+        await (input.dailyLogger?.appendDaily ?? appendDaily)(input.config.cwd, dailyFacts)
+      } catch {
+        // Daily memory is best-effort and must not block the agent loop.
       }
     }
   }
