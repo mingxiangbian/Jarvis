@@ -49,25 +49,39 @@ export async function runAgentLoop(input: RunAgentLoopInput): Promise<RunAgentLo
   context.webSearchConsecutiveFailures ??= 0
   let toolCallCount = 0
   let emptyFinalResponseCount = 0
-  let hasAutoCompacted = false
+  let lastUnchangedCompactSignature: string | undefined
 
   while (toolCallCount < input.config.maxToolCallsPerTurn) {
     const tokenThreshold = input.config.contextWindowTokens * input.config.autoCompactThreshold
-    if (!hasAutoCompacted && estimateTokensForMessages(messages) >= tokenThreshold) {
-      hasAutoCompacted = true
-      const compactedMessages = await compactHistory(messages, {
-        thresholdTokens: tokenThreshold,
-        keepRecentRounds: 8,
-        summarize: async (text) => {
-          const response = await callModel({
-            config: input.config,
-            messages: [{ role: 'user', content: buildSummarizationPrompt(text) }],
-            tools: []
-          })
-          return response.content
+    if (estimateTokensForMessages(messages) >= tokenThreshold) {
+      const compactSignature = messageSignature(messages)
+      if (compactSignature !== lastUnchangedCompactSignature) {
+        const compactedMessages = await compactHistory(messages, {
+          thresholdTokens: tokenThreshold,
+          keepRecentRounds: 8,
+          summarize: async (text) => {
+            const response = await callModel({
+              config: {
+                ...input.config,
+                model: {
+                  ...input.config.model,
+                  temperature: 0
+                }
+              },
+              messages: [{ role: 'user', content: buildSummarizationPrompt(text) }],
+              tools: []
+            })
+            return response.content
+          }
+        })
+        const compactedSignature = messageSignature(compactedMessages)
+        if (compactedSignature === compactSignature) {
+          lastUnchangedCompactSignature = compactSignature
+        } else {
+          lastUnchangedCompactSignature = undefined
+          messages.splice(0, messages.length, ...compactedMessages)
         }
-      })
-      messages.splice(0, messages.length, ...compactedMessages)
+      }
     }
 
     const response = await callModel({
@@ -150,6 +164,17 @@ export async function runAgentLoop(input: RunAgentLoopInput): Promise<RunAgentLo
     finalText,
     toolCallCount
   }
+}
+
+function messageSignature(messages: ChatMessage[]): string {
+  return JSON.stringify(
+    messages.map((message) => ({
+      role: message.role,
+      content: message.content,
+      tool_call_id: message.tool_call_id,
+      tool_calls: message.tool_calls
+    }))
+  )
 }
 
 function buildSummarizationPrompt(text: string): string {
