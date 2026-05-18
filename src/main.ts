@@ -16,6 +16,7 @@ import {
 } from './memory.js'
 import { runRepl } from './repl.js'
 import { createCoreTools } from './tools/index.js'
+import { createTerminalObserver } from './ui-observer.js'
 
 const program = new Command()
 
@@ -66,8 +67,10 @@ async function main(): Promise<void> {
     return
   }
 
+  const observer = createTerminalObserver(process.stderr)
   const result = await runAgentLoop({
     config,
+    observer,
     systemPrompt,
     userPrompt: prompt,
     tools

@@ -115,7 +115,83 @@ describe('main CLI', () => {
     } catch (error) {
       const stderr = String((error as { stderr?: string }).stderr ?? '')
       expect((error as { code?: number }).code).toBe(1)
-      expect(stderr.trim()).toBe('LLM request failed: fetch failed')
+      expect(stderr).toContain('LLM request failed: fetch failed')
+      expect(stderr).not.toContain('at async main')
+    }
+  })
+
+  it('keeps the final one-shot answer on stdout and UI status on stderr', async () => {
+    const server = createServer((request, response) => {
+      let body = ''
+      request.setEncoding('utf8')
+      request.on('data', (chunk) => {
+        body += chunk
+      })
+      request.on('end', () => {
+        const parsed = JSON.parse(body) as { messages: Array<{ role: string; content: string }> }
+        const hasToolResult = parsed.messages.some((message) => message.role === 'tool')
+        response.writeHead(200, { 'content-type': 'application/json' })
+
+        if (!hasToolResult) {
+          response.end(
+            JSON.stringify({
+              choices: [
+                {
+                  message: {
+                    content: '',
+                    tool_calls: [
+                      {
+                        id: 'call-1',
+                        type: 'function',
+                        function: {
+                          name: 'glob',
+                          arguments: JSON.stringify({ pattern: 'package.json' })
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            })
+          )
+          return
+        }
+
+        response.end(JSON.stringify({ choices: [{ message: { content: 'final cli answer' } }] }))
+      })
+    })
+
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const address = server.address()
+    if (address === null || typeof address === 'string') {
+      throw new Error('Expected TCP server address')
+    }
+
+    try {
+      const result = await execFileAsync(
+        process.execPath,
+        ['node_modules/tsx/dist/cli.mjs', 'src/main.ts', '--cwd', process.cwd(), 'find package'],
+        {
+          env: {
+            ...process.env,
+            CC_LOCAL_BASE_URL: `http://127.0.0.1:${address.port}/v1`
+          }
+        }
+      )
+
+      expect(result.stdout).toContain('final cli answer')
+      expect(result.stdout).not.toContain('glob')
+      expect(result.stderr).toContain('glob')
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => {
+          if (error) {
+            reject(error)
+            return
+          }
+          resolve()
+        })
+      })
     }
   })
 })
