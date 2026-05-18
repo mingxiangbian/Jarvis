@@ -145,9 +145,10 @@ function terminalWidth(output: OutputStream): number {
 
 export function createTerminalObserver(
   output: OutputStream = process.stderr,
-  options: { color?: boolean } = {}
+  options: { color?: boolean; spinner?: boolean } = {}
 ): AgentObserver {
   const color = options.color ?? true
+  const spinnerEnabled = options.spinner ?? true
   let spinner: ReturnType<typeof setInterval> | undefined
   let thinkingStartedAt = 0
   let frameIndex = 0
@@ -172,6 +173,7 @@ export function createTerminalObserver(
 
   return {
     onThinkingStart(): void {
+      if (!spinnerEnabled) return
       stopSpinner()
       thinkingStartedAt = Date.now()
       frameIndex = 0
