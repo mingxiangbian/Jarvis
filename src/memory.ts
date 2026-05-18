@@ -350,7 +350,7 @@ export type MemoryWriteResult = { ok: true; file: string } | { ok: false; error:
 
 export async function writeMemoryEntry(
   cwd: string,
-  entry: { title: string; file: string; summary: string; content: string },
+  entry: { title: string; file: string; summary: string; content: string; type?: MemoryType },
   limits: MemoryWriteLimits
 ): Promise<MemoryWriteResult> {
   try {
@@ -461,7 +461,7 @@ export async function compactMemories(input: CompactMemoriesInput): Promise<Comp
 
 export async function updateMemoryIndex(
   cwd: string,
-  entry: { title: string; file: string; summary: string }
+  entry: { title: string; file: string; summary: string; type?: MemoryType }
 ): Promise<void> {
   validateMemoryIndexEntry(entry)
 
@@ -740,17 +740,22 @@ async function readMemoryIndexIfExists(memoryIndexPath: string): Promise<string>
 async function appendMemoryIndexEntry(
   memoryIndexPath: string,
   existingIndex: string,
-  entry: { title: string; file: string; summary: string }
+  entry: { title: string; file: string; summary: string; type?: MemoryType }
 ): Promise<void> {
   const prefix = existingIndex === '' || existingIndex.endsWith('\n') ? '' : '\n'
-  await appendNoFollow(memoryIndexPath, `${prefix}- [${entry.title}](${entry.file}) — ${entry.summary}\n`)
+  const typePrefix = entry.type === undefined ? '' : `[${entry.type}] `
+  await appendNoFollow(memoryIndexPath, `${prefix}- [${entry.title}](${entry.file}) — ${typePrefix}${entry.summary}\n`)
 }
 
-function validateMemoryIndexEntry(entry: { title: string; file: string; summary: string }): void {
+function validateMemoryIndexEntry(entry: { title: string; file: string; summary: string; type?: unknown }): void {
   for (const value of [entry.title, entry.file, entry.summary]) {
     if (value.includes('\n') || value.includes('\r')) {
       throw new Error('Memory index entries cannot contain newlines')
     }
+  }
+
+  if (entry.type !== undefined && (typeof entry.type !== 'string' || !isMemoryType(entry.type))) {
+    throw new Error(`Invalid memory type: ${String(entry.type)}`)
   }
 }
 

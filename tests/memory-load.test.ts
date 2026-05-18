@@ -644,6 +644,21 @@ describe('updateMemoryIndex', () => {
     )
   })
 
+  it('writes a typed memory index entry', async () => {
+    const root = await createTempDir()
+
+    await updateMemoryIndex(root, {
+      title: 'Docs',
+      file: 'docs.md',
+      summary: 'external docs',
+      type: 'reference'
+    })
+
+    await expect(readFile(join(root, '.cc-local', 'memory', 'MEMORY.md'), 'utf8')).resolves.toBe(
+      '- [Docs](docs.md) — [reference] external docs\n'
+    )
+  })
+
   it('appends to existing MEMORY.md while preserving existing content', async () => {
     const root = await createTempDir()
     const memoryDir = await createMemoryDir(root)
@@ -696,6 +711,24 @@ describe('updateMemoryIndex', () => {
       await expect(updateMemoryIndex(root, entry)).rejects.toThrow(/newlines/)
       await expect(readFile(memoryIndexPath, 'utf8')).resolves.toBe(existingIndex)
     }
+  })
+
+  it('rejects invalid memory index types without changing MEMORY.md', async () => {
+    const root = await createTempDir()
+    const memoryDir = await createMemoryDir(root)
+    const memoryIndexPath = join(memoryDir, 'MEMORY.md')
+    const existingIndex = '- [Existing](existing.md) — old notes\n'
+    await writeFile(memoryIndexPath, existingIndex)
+
+    await expect(
+      updateMemoryIndex(root, {
+        title: 'Bad',
+        file: 'bad.md',
+        summary: 'bad type',
+        type: 'invalid' as never
+      })
+    ).rejects.toThrow(/Invalid memory type/)
+    await expect(readFile(memoryIndexPath, 'utf8')).resolves.toBe(existingIndex)
   })
 
   it('does not update memory index through a .cc-local/memory symlink outside the project', async () => {
@@ -791,6 +824,28 @@ describe('writeMemoryEntry', () => {
     )
   })
 
+  it('creates a memory file and appends a typed index entry', async () => {
+    const root = await createTempDir()
+
+    await expect(
+      writeMemoryEntry(
+        root,
+        {
+          title: 'Correction',
+          file: 'correction.md',
+          summary: 'user corrected behavior',
+          content: 'Always verify before claiming completion.\n',
+          type: 'feedback'
+        },
+        { memoryMaxLines: 10, memoryMaxLineLength: 80 }
+      )
+    ).resolves.toEqual({ ok: true, file: 'correction.md' })
+
+    await expect(readFile(join(root, '.cc-local', 'memory', 'MEMORY.md'), 'utf8')).resolves.toBe(
+      '- [Correction](correction.md) — [feedback] user corrected behavior\n'
+    )
+  })
+
   it('rejects writes when MEMORY.md is full', async () => {
     const root = await createTempDir()
     const memoryDir = await createMemoryDir(root)
@@ -844,6 +899,28 @@ describe('writeMemoryEntry', () => {
         )
       ).resolves.toEqual({ ok: false, error: 'Memory index entries cannot contain newlines' })
     }
+  })
+
+  it('rejects invalid memory entry types without writing files', async () => {
+    const root = await createTempDir()
+
+    await expect(
+      writeMemoryEntry(
+        root,
+        {
+          title: 'Bad',
+          file: 'bad.md',
+          summary: 'bad type',
+          content: 'Do not write.\n',
+          type: 'invalid' as never
+        },
+        { memoryMaxLines: 10, memoryMaxLineLength: 80 }
+      )
+    ).resolves.toEqual({ ok: false, error: 'Invalid memory type: invalid' })
+
+    await expect(readFile(join(root, '.cc-local', 'memory', 'bad.md'), 'utf8')).rejects.toMatchObject({
+      code: 'ENOENT'
+    })
   })
 
   it('rejects symlinked memory targets without writing through them', async () => {
