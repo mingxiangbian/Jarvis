@@ -399,6 +399,7 @@ export type CompactMemoriesResult = { ok: true; promoted: number } | { ok: false
 interface CompactedMemoryEntry {
   title: string
   file: string
+  type: MemoryType
   summary: string
   content: string
 }
@@ -412,6 +413,7 @@ Return only JSON in this shape:
     {
       "title": "Short title",
       "file": "lowercase-kebab-file.md",
+      "type": "project",
       "summary": "one-line summary",
       "content": "durable memory markdown"
     }
@@ -424,6 +426,11 @@ Rules:
 - Omit routine command noise and transient failures.
 - Use relative file names inside the memory directory.
 - Keep each summary concise and one line.
+- Classify each memory with exactly one type:
+  - user: user preferences, identity, role, and long-term habits.
+  - feedback: user corrections, feedback about agent behavior, and future working rules.
+  - project: project decisions, architecture conventions, and codebase facts.
+  - reference: external systems, links, documents, accounts, or environment references.
 
 Daily memory:
 ${dailyContent}`
@@ -652,17 +659,19 @@ function parseCompactedMemoryEntries(content: string): CompactedMemoryEntry[] {
       throw new Error('Expected memory entry object')
     }
 
-    const { title, file, summary, content } = entry
+    const { title, file, type, summary, content } = entry
     if (
       typeof title !== 'string' ||
       typeof file !== 'string' ||
+      typeof type !== 'string' ||
+      !isMemoryType(type) ||
       typeof summary !== 'string' ||
       typeof content !== 'string'
     ) {
       throw new Error('Expected string memory entry fields')
     }
 
-    return { title, file, summary, content }
+    return { title, file, type, summary, content }
   })
 }
 
