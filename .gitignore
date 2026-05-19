@@ -6,6 +6,8 @@ node_modules/
 dist/
 coverage/
 .worktrees/
+.superpowers/
+data/
 
 # Local model weights and downloaded model artifacts
 Qwen3.5-9B-MLX-4bit/

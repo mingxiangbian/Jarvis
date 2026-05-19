@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
@@ -14,6 +14,101 @@ function cliEnv(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
 }
 
 describe('main CLI', () => {
+  it('rejects --web with a prompt', async () => {
+    try {
+      await execFileAsync(process.execPath, ['node_modules/tsx/dist/cli.mjs', 'src/main.ts', '--web', 'hello'], {
+        env: cliEnv()
+      })
+      throw new Error('CLI unexpectedly succeeded')
+    } catch (error) {
+      expect((error as { code?: number }).code).toBe(1)
+      expect(String((error as { stderr?: string }).stderr ?? '')).toContain('--web cannot be combined with a prompt.')
+    }
+  })
+
+  it('rejects --web with --repl', async () => {
+    try {
+      await execFileAsync(process.execPath, ['node_modules/tsx/dist/cli.mjs', 'src/main.ts', '--web', '--repl'], {
+        env: cliEnv()
+      })
+      throw new Error('CLI unexpectedly succeeded')
+    } catch (error) {
+      expect((error as { code?: number }).code).toBe(1)
+      expect(String((error as { stderr?: string }).stderr ?? '')).toContain('--web cannot be combined with --repl.')
+    }
+  })
+
+  it('rejects an invalid --port value', async () => {
+    for (const portArg of ['abc', '--port=']) {
+      const args =
+        portArg === '--port='
+          ? ['node_modules/tsx/dist/cli.mjs', 'src/main.ts', '--web', portArg]
+          : ['node_modules/tsx/dist/cli.mjs', 'src/main.ts', '--web', '--port', portArg]
+
+      try {
+        await execFileAsync(process.execPath, args, {
+          env: cliEnv()
+        })
+        throw new Error('CLI unexpectedly succeeded')
+      } catch (error) {
+        expect((error as { code?: number }).code).toBe(1)
+        expect(String((error as { stderr?: string }).stderr ?? '')).toContain(
+          '--port must be an integer from 0 to 65535.'
+        )
+      }
+    }
+  })
+
+  it('starts the Web server and prints the local URL', async () => {
+    const child = spawn(process.execPath, ['node_modules/tsx/dist/cli.mjs', 'src/main.ts', '--web', '--port', '0'], {
+      env: cliEnv(),
+      stdio: ['ignore', 'pipe', 'pipe']
+    })
+    const exitPromise = new Promise<void>((resolve) => {
+      child.once('exit', () => resolve())
+    })
+
+    let stdout = ''
+    let stderr = ''
+
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          reject(new Error(`Timed out waiting for Web server output. stdout=${stdout} stderr=${stderr}`))
+        }, 10_000)
+
+        child.stdout.on('data', (chunk: Buffer) => {
+          stdout += chunk.toString('utf8')
+          if (/cc-local web listening at http:\/\/127\.0\.0\.1:\d+/.test(stdout)) {
+            clearTimeout(timeout)
+            resolve()
+          }
+        })
+        child.stderr.on('data', (chunk: Buffer) => {
+          stderr += chunk.toString('utf8')
+        })
+        child.on('error', (error) => {
+          clearTimeout(timeout)
+          reject(error)
+        })
+        child.on('exit', (code) => {
+          if (!stdout) {
+            clearTimeout(timeout)
+            reject(new Error(`CLI exited before printing URL with code ${code}. stderr=${stderr}`))
+          }
+        })
+      })
+
+      expect(stdout).toMatch(/cc-local web listening at http:\/\/127\.0\.0\.1:\d+\n/)
+      expect(stderr).toBe('')
+    } finally {
+      if (child.exitCode === null && child.signalCode === null) {
+        child.kill()
+      }
+      await exitPromise
+    }
+  }, 15_000)
+
   it('appends soul, Rule.md stack, project/global memories, and daily memory to the system prompt', async () => {
     const home = await mkdtemp(join(tmpdir(), 'cc-local-main-home-'))
     const root = join(home, 'workspace', 'project')
