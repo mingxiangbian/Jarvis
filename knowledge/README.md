@@ -37,6 +37,7 @@
 | 19 | [openclaw-memory](19-openclaw-memory.md) | OpenClaw — Dreaming梦境系统(3阶段)、6维评分、3道晋升闸门、压缩前抢救 |
 | 20 | [hermes-memory](20-hermes-memory.md) | Hermes — 冻结快照、硬容量限制(2200字符)、Periodic Nudge、on_pre_compress Hook |
 | 21 | [cc-memory-deep](21-claude-code-memory-deep.md) | Claude Code 深度 — KAIROS守护进程、Auto Dream(3操作)、3层作用域、200行索引上限 |
+| 22 | [session-history-memory-integration](22-session-history-memory-integration.md) | Session History 融入 Memory — Codex/Claude Code/Gemini CLI 对比、resume/compact/memory extraction 边界、当前 agent 实现建议 |
 
 ## 推荐阅读顺序
 
