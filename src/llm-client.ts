@@ -82,12 +82,16 @@ async function requestCompletion(input: CallModelInput): Promise<Response> {
   const body: {
     model: string
     temperature: number
+    max_tokens: number
+    chat_template_kwargs: { enable_thinking: boolean }
     messages: ChatMessage[]
     tools?: unknown[]
     tool_choice?: 'auto'
   } = {
     model: input.config.model.model,
     temperature: input.config.model.temperature,
+    max_tokens: 4096,
+    chat_template_kwargs: { enable_thinking: false },
     messages: input.messages
   }
 

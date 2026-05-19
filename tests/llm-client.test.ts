@@ -47,6 +47,8 @@ describe('callModel', () => {
       body: JSON.stringify({
         model: 'local-model',
         temperature: 0.2,
+        max_tokens: 4096,
+        chat_template_kwargs: { enable_thinking: false },
         messages,
         tools,
         tool_choice: 'auto'
