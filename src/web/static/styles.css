@@ -178,23 +178,15 @@ button {
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.78);
   border-radius: 18px;
-  background:
-    radial-gradient(circle at 52% 31%, rgba(255, 255, 255, 0.96) 0 8px, transparent 9px),
-    radial-gradient(circle at 36% 42%, rgba(96, 62, 145, 0.86) 0 3px, transparent 4px),
-    radial-gradient(circle at 62% 42%, rgba(96, 62, 145, 0.82) 0 3px, transparent 4px),
-    linear-gradient(145deg, rgba(255, 183, 218, 0.96) 0 38%, rgba(222, 245, 255, 0.94) 39% 69%, rgba(205, 189, 255, 0.88) 100%);
+  background: rgba(255, 255, 255, 0.72);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.88), 0 10px 22px rgba(112, 133, 164, 0.16);
 }
 
-.brand-avatar::after {
-  position: absolute;
-  inset: 6px 5px auto auto;
-  width: 16px;
-  height: 26px;
-  border-radius: 999px;
-  background: linear-gradient(160deg, rgba(255, 255, 255, 0.84), rgba(174, 239, 255, 0.26));
-  content: "";
-  transform: rotate(24deg);
+.brand-avatar-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .avatar-realistic {
@@ -481,23 +473,19 @@ button:disabled {
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.8);
   border-radius: 50%;
-  background:
-    radial-gradient(circle at 50% 34%, rgba(255, 255, 255, 0.95) 0 6px, transparent 7px),
-    radial-gradient(circle at 38% 45%, rgba(101, 67, 154, 0.88) 0 2px, transparent 3px),
-    radial-gradient(circle at 61% 45%, rgba(101, 67, 154, 0.82) 0 2px, transparent 3px),
-    linear-gradient(145deg, rgba(255, 174, 214, 0.96), rgba(174, 239, 255, 0.88) 58%, rgba(203, 189, 255, 0.9));
+  background: rgba(255, 255, 255, 0.76);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.82), 0 8px 18px rgba(117, 139, 166, 0.14);
 }
 
-.avatar-cartoon::after {
-  position: absolute;
-  right: 4px;
-  bottom: 5px;
-  width: 9px;
-  height: 9px;
+.avatar-cartoon {
   border-radius: 50%;
-  background: rgba(174, 239, 255, 0.9);
-  content: "";
+}
+
+.assistant-avatar-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .message {
@@ -574,13 +562,16 @@ button:disabled {
 
 #promptInput {
   width: 100%;
+  height: 42px;
   min-height: 42px;
   max-height: 150px;
-  resize: vertical;
+  line-height: 20px;
+  overflow-y: auto;
+  resize: none;
   border: 0;
   border-radius: 999px;
   outline: none;
-  padding: 11px 13px 9px;
+  padding: 11px 13px;
   color: var(--ink);
   background: transparent;
   box-shadow: none;

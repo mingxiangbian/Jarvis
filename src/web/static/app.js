@@ -38,6 +38,7 @@ promptInput?.addEventListener('keydown', (event) => {
     void sendPrompt()
   }
 })
+promptInput?.addEventListener('input', autoResizePromptInput)
 
 newChatButton?.addEventListener('click', resetChat)
 railNewChatButton?.addEventListener('click', resetChat)
@@ -59,6 +60,7 @@ function resetChat() {
   renderInspector()
   if (promptInput) {
     promptInput.value = ''
+    autoResizePromptInput()
     promptInput.focus()
   }
 }
@@ -111,6 +113,7 @@ async function sendPrompt() {
   state.messages.push({ role: 'user', content })
   if (promptInput) {
     promptInput.value = ''
+    autoResizePromptInput()
   }
   setSending(true)
   updateRunStatus('Starting run...')
@@ -238,6 +241,12 @@ function appendAssistantMessage(text) {
   avatar.className = 'assistant-avatar avatar-cartoon'
   avatar.setAttribute('aria-hidden', 'true')
 
+  const avatarImage = document.createElement('img')
+  avatarImage.className = 'assistant-avatar-image'
+  avatarImage.src = '/static/assets/cyrene-cartoon-avatar.png'
+  avatarImage.alt = ''
+  avatarImage.decoding = 'async'
+
   const name = document.createElement('span')
   name.className = 'message-author'
   name.textContent = 'Cyrene'
@@ -247,8 +256,9 @@ function appendAssistantMessage(text) {
 
   const content = document.createElement('span')
   content.className = 'message-content'
-  content.textContent = text
+  content.textContent = text.trim()
 
+  avatar.append(avatarImage)
   header.append(avatar, name)
   bubble.append(content)
   group.append(header, bubble)
@@ -364,6 +374,15 @@ function setSending(isSending) {
     railNewChatButton.disabled = isSending || state.activeRun !== null
   }
   appShell?.classList.toggle('run-active', isSending)
+}
+
+function autoResizePromptInput() {
+  if (!promptInput) {
+    return
+  }
+
+  promptInput.style.height = '42px'
+  promptInput.style.height = `${Math.min(promptInput.scrollHeight, 150)}px`
 }
 
 function formatDuration(durationMs) {
