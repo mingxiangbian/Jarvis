@@ -12,9 +12,11 @@ const inspectorContent = document.querySelector('#inspectorContent')
 const tabs = Array.from(document.querySelectorAll('.tab'))
 
 const state = {
+  sessionId: null,
   messages: [],
   activeRun: null,
   tools: [],
+  liveStatusNode: null,
   resizingLeft: false,
   inspectorTab: 'tools'
 }
@@ -26,11 +28,12 @@ composer?.addEventListener('submit', (event) => {
 
 newChatButton?.addEventListener('click', () => {
   if (state.activeRun) {
-    state.activeRun.close()
+    return
   }
+  state.sessionId = null
   state.messages = []
   state.tools = []
-  state.activeRun = null
+  state.liveStatusNode = null
   setSending(false)
   renderEmptyState()
   renderInspector()
@@ -90,14 +93,15 @@ async function sendPrompt() {
     promptInput.value = ''
   }
   setSending(true)
-  appendMessage('status', 'Starting run...')
+  state.liveStatusNode = null
+  updateStatus('Starting run...')
 
   let response
   try {
     response = await fetch('/api/runs', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ messages: state.messages })
+      body: JSON.stringify({ sessionId: state.sessionId, message: content })
     })
   } catch (error) {
     finishWithError(error)
@@ -109,7 +113,8 @@ async function sendPrompt() {
     return
   }
 
-  const { runId } = await response.json()
+  const { runId, sessionId } = await response.json()
+  state.sessionId = sessionId
   const stream = new EventSource(`/api/runs/${runId}/events`)
   state.activeRun = stream
 
@@ -134,15 +139,15 @@ async function sendPrompt() {
 function handleRunEvent(event, stream) {
   switch (event.type) {
     case 'thinking_start':
-      appendMessage('status', 'Thinking...')
+      updateStatus('Thinking...')
       break
     case 'thinking_stop':
-      appendMessage('status', `Thought for ${formatDuration(event.durationMs)}.`)
+      updateStatus(`Thought for ${formatDuration(event.durationMs)}.`)
       break
     case 'tool_start':
       state.tools.push({ type: 'start', name: event.name, summary: event.summary })
       renderInspector()
-      appendMessage('status', `Using ${event.name}...`)
+      updateStatus(`Using ${event.name}...`)
       break
     case 'tool_result':
       state.tools.push({
@@ -153,18 +158,19 @@ function handleRunEvent(event, stream) {
         summary: event.summary
       })
       renderInspector()
-      appendMessage('status', `${event.name} ${event.ok ? 'completed' : 'failed'} in ${formatDuration(event.durationMs)}.`)
+      updateStatus(`${event.name} ${event.ok ? 'completed' : 'failed'} in ${formatDuration(event.durationMs)}.`)
       break
     case 'final':
       appendMessage('assistant', event.text)
       state.messages.push({ role: 'assistant', content: event.text })
+      state.liveStatusNode = null
       finishRun(stream)
       break
     case 'error':
       finishWithError(event.message, stream)
       break
     default:
-      appendMessage('status', event.type || 'Unknown event')
+      updateStatus(event.type || 'Unknown event')
   }
 }
 
@@ -178,6 +184,7 @@ function finishRun(stream) {
 
 function finishWithError(error, stream) {
   appendMessage('error', error instanceof Error ? error.message : String(error))
+  state.liveStatusNode = null
   finishRun(stream || state.activeRun)
 }
 
@@ -187,6 +194,17 @@ function appendMessage(kind, text) {
   node.className = `message ${kind}`
   node.textContent = text
   messages?.append(node)
+  messages?.scrollTo({ top: messages.scrollHeight, behavior: 'smooth' })
+  return node
+}
+
+function updateStatus(text) {
+  clearEmptyState()
+  if (!state.liveStatusNode?.isConnected) {
+    state.liveStatusNode = appendMessage('status', text)
+    return
+  }
+  state.liveStatusNode.textContent = text
   messages?.scrollTo({ top: messages.scrollHeight, behavior: 'smooth' })
 }
 
@@ -272,6 +290,9 @@ function setSending(isSending) {
   }
   if (promptInput) {
     promptInput.disabled = isSending
+  }
+  if (newChatButton) {
+    newChatButton.disabled = isSending || state.activeRun !== null
   }
 }
 

@@ -24,26 +24,34 @@ export interface WebServerHandle {
 
 interface RunRecord {
   id: string
+  session: SessionRecord
+  userMessage: ChatMessage
   messages: ChatMessage[]
   events: WebRunEvent[]
   clients: Set<ServerResponse>
   done: boolean
 }
 
+interface SessionRecord {
+  id: string
+  messages: ChatMessage[]
+}
+
 interface WebServerContext {
   callModel?: (input: CallModelInput) => Promise<ModelResponse>
   runs: Map<string, RunRecord>
+  sessions: Map<string, SessionRecord>
   activeRuns: Set<Promise<void>>
   runtime: Awaited<ReturnType<typeof buildAgentRuntime>>
 }
 
 const currentFile = fileURLToPath(import.meta.url)
 const staticDir = resolve(dirname(currentFile), 'static')
-const clientMessageRoles = new Set<ChatRole>(['user', 'assistant'])
 
 export async function startWebServer(input: StartWebServerInput): Promise<WebServerHandle> {
   const runtime = await buildAgentRuntime(input.cwd)
   const runs = new Map<string, RunRecord>()
+  const sessions = new Map<string, SessionRecord>()
   const activeRuns = new Set<Promise<void>>()
 
   const server = createServer((request, response) => {
@@ -51,6 +59,7 @@ export async function startWebServer(input: StartWebServerInput): Promise<WebSer
       activeRuns,
       callModel: input.callModel,
       runs,
+      sessions,
       runtime
     })
   })
@@ -135,27 +144,31 @@ async function createRun(
     return
   }
 
-  const parsed = parseMessages(body)
+  const parsed = parseRunRequest(body)
   if (!parsed.ok) {
     writeJson(response, 400, { error: parsed.error })
     return
   }
 
-  const messages = parsed.messages
-  if (messages.length === 0 || !messages.some((message) => message.role === 'user' && message.content.trim().length > 0)) {
+  const userMessage = parsed.message
+  if (userMessage.content.trim().length === 0) {
     writeJson(response, 400, { error: 'At least one user message is required.' })
     return
   }
 
+  const session = getOrCreateSession(context.sessions, parsed.sessionId)
+  const messages = [...session.messages, userMessage]
   const record: RunRecord = {
     id: randomUUID(),
+    session,
+    userMessage,
     messages,
     events: [],
     clients: new Set(),
     done: false
   }
   context.runs.set(record.id, record)
-  writeJson(response, 202, { runId: record.id })
+  writeJson(response, 202, { runId: record.id, sessionId: session.id })
 
   const runPromise = Promise.resolve()
     .then(() => runWebAgent(record, context.runtime, context.callModel))
@@ -171,13 +184,14 @@ async function runWebAgent(
   callModel?: (input: CallModelInput) => Promise<ModelResponse>
 ): Promise<void> {
   try {
-    await runAgentLoop({
+    const result = await runAgentLoop({
       config: runtime.config,
       tools: runtime.tools,
       messages: [{ role: 'system', content: runtime.systemPrompt }, ...record.messages],
       observer: createWebObserver((event) => emit(record, event)),
       callModel
     })
+    record.session.messages.push(record.userMessage, { role: 'assistant', content: result.finalText })
   } catch (error) {
     emit(record, errorEvent(error))
   }
@@ -237,26 +251,60 @@ function writeSseEvent(response: ServerResponse, event: WebRunEvent): void {
   response.write(`data: ${JSON.stringify(event)}\n\n`)
 }
 
-function parseMessages(body: unknown): { ok: true; messages: ChatMessage[] } | { ok: false; error: string } {
-  if (!isObject(body) || !Array.isArray(body.messages)) {
-    return { ok: true, messages: [] }
+function parseRunRequest(body: unknown): { ok: true; message: ChatMessage; sessionId?: string } | { ok: false; error: string } {
+  if (!isObject(body)) {
+    return { ok: false, error: 'At least one user message is required.' }
   }
 
-  const messages: ChatMessage[] = []
-  for (const message of body.messages) {
-    if (!isObject(message) || typeof message.role !== 'string' || typeof message.content !== 'string') {
-      return { ok: false, error: 'Invalid message.' }
-    }
+  const sessionId = typeof body.sessionId === 'string' && body.sessionId.trim().length > 0 ? body.sessionId : undefined
 
-    const role = message.role as ChatRole
-    if (!clientMessageRoles.has(role)) {
-      return { ok: false, error: `Unsupported message role: ${message.role}.` }
-    }
-
-    messages.push({ role, content: message.content })
+  if (typeof body.message === 'string') {
+    return { ok: true, message: { role: 'user', content: body.message }, sessionId }
   }
 
-  return { ok: true, messages }
+  if (!Array.isArray(body.messages)) {
+    return { ok: false, error: 'At least one user message is required.' }
+  }
+
+  if (body.messages.length === 0) {
+    return { ok: false, error: 'At least one user message is required.' }
+  }
+
+  if (body.messages.length !== 1) {
+    const unsupported = body.messages.find((message) => isObject(message) && typeof message.role === 'string' && message.role !== 'user')
+    if (unsupported !== undefined && isObject(unsupported)) {
+      return { ok: false, error: `Unsupported message role: ${unsupported.role}.` }
+    }
+    return { ok: false, error: 'Exactly one user message is supported.' }
+  }
+
+  const [message] = body.messages
+  if (!isObject(message) || typeof message.role !== 'string' || typeof message.content !== 'string') {
+    return { ok: false, error: 'Invalid message.' }
+  }
+
+  const role = message.role as ChatRole
+  if (role !== 'user') {
+    return { ok: false, error: `Unsupported message role: ${message.role}.` }
+  }
+
+  return { ok: true, message: { role, content: message.content }, sessionId }
+}
+
+function getOrCreateSession(sessions: Map<string, SessionRecord>, requestedSessionId?: string): SessionRecord {
+  if (requestedSessionId !== undefined) {
+    const existing = sessions.get(requestedSessionId)
+    if (existing !== undefined) {
+      return existing
+    }
+  }
+
+  const session: SessionRecord = {
+    id: randomUUID(),
+    messages: []
+  }
+  sessions.set(session.id, session)
+  return session
 }
 
 async function serveStaticFile(response: ServerResponse, relativePath: string): Promise<void> {

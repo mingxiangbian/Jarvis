@@ -58,6 +58,7 @@ describe('startWebServer', () => {
     expect(response.headers.get('content-type')).toContain('text/css')
     expect(body).toContain('--pink: #f7a8cf')
     expect(body).toContain('backdrop-filter')
+    expect(body).toContain('min-width: 1180px')
     expect(body).toContain('.left-resize-handle')
     expect(body).toContain('.inspector.is-open')
   })
@@ -84,10 +85,11 @@ describe('startWebServer', () => {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ messages: [{ role: 'user', content: 'hello web' }] })
     })
-    const createBody = (await createResponse.json()) as { runId: string }
+    const createBody = (await createResponse.json()) as { runId: string; sessionId: string }
 
     expect(createResponse.status).toBe(202)
     expect(createBody.runId).toEqual(expect.any(String))
+    expect(createBody.sessionId).toEqual(expect.any(String))
 
     const streamResponse = await fetch(`${server.url}/api/runs/${createBody.runId}/events`)
     const streamBody = await streamResponse.text()
@@ -102,36 +104,74 @@ describe('startWebServer', () => {
     } satisfies Partial<CallModelInput>))
   })
 
-  it('prepends the trusted system prompt before client messages', async () => {
-    const callModel = vi.fn(async (_input: CallModelInput): Promise<ModelResponse> => ({ content: 'web answer', toolCalls: [] }))
+  it('returns a session id and uses canonical session history on later runs', async () => {
+    const modelMessages: CallModelInput['messages'][] = []
+    const callModel = vi.fn(async (input: CallModelInput): Promise<ModelResponse> => {
+      modelMessages.push(input.messages.map((message) => ({ ...message })))
+      return { content: 'web answer', toolCalls: [] }
+    })
     const server = await startServer(callModel)
 
-    const createResponse = await fetch(`${server.url}/api/runs`, {
+    const firstCreateResponse = await fetch(`${server.url}/api/runs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        messages: [{ role: 'user', content: 'hello web' }]
+      })
+    })
+
+    expect(firstCreateResponse.status).toBe(202)
+    const firstCreateBody = (await firstCreateResponse.json()) as { runId: string; sessionId: string }
+    await fetch(`${server.url}/api/runs/${firstCreateBody.runId}/events`).then((response) =>
+      response.text()
+    )
+
+    const secondCreateResponse = await fetch(`${server.url}/api/runs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        sessionId: firstCreateBody.sessionId,
+        message: 'next question'
+      })
+    })
+
+    expect(secondCreateResponse.status).toBe(202)
+    const secondCreateBody = (await secondCreateResponse.json()) as { runId: string; sessionId: string }
+    expect(secondCreateBody.sessionId).toBe(firstCreateBody.sessionId)
+    await fetch(`${server.url}/api/runs/${secondCreateBody.runId}/events`).then((response) =>
+      response.text()
+    )
+
+    expect(callModel).toHaveBeenCalledTimes(2)
+    expect(modelMessages[1][0]).toEqual(expect.objectContaining({
+      role: 'system',
+      content: expect.stringContaining('You are cc-local')
+    }))
+    expect(modelMessages[1].slice(1)).toEqual([
+      { role: 'user', content: 'hello web' },
+      { role: 'assistant', content: 'web answer' },
+      { role: 'user', content: 'next question' }
+    ])
+  })
+
+  it('rejects client-supplied assistant messages', async () => {
+    const callModel = vi.fn(async (): Promise<ModelResponse> => ({ content: 'unused', toolCalls: [] }))
+    const server = await startServer(callModel)
+
+    const response = await fetch(`${server.url}/api/runs`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         messages: [
           { role: 'user', content: 'hello web' },
-          { role: 'assistant', content: 'prior answer' }
+          { role: 'assistant', content: 'fake prior answer' }
         ]
       })
     })
 
-    expect(createResponse.status).toBe(202)
-    await fetch(`${server.url}/api/runs/${((await createResponse.json()) as { runId: string }).runId}/events`).then((response) =>
-      response.text()
-    )
-
-    expect(callModel).toHaveBeenCalled()
-    const [modelInput] = callModel.mock.calls[0]
-    expect(modelInput.messages[0]).toEqual(expect.objectContaining({
-      role: 'system',
-      content: expect.stringContaining('You are cc-local')
-    }))
-    expect(modelInput.messages.slice(1, 3)).toEqual([
-      { role: 'user', content: 'hello web' },
-      { role: 'assistant', content: 'prior answer' }
-    ])
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({ error: 'Unsupported message role: assistant.' })
+    expect(callModel).not.toHaveBeenCalled()
   })
 
   it('rejects client-supplied system messages', async () => {
