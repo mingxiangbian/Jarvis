@@ -5,10 +5,14 @@ const composer = document.querySelector('#composer')
 const promptInput = document.querySelector('#promptInput')
 const sendButton = document.querySelector('#sendButton')
 const newChatButton = document.querySelector('#newChatButton')
+const railNewChatButton = document.querySelector('#railNewChatButton')
+const sidebarToggle = document.querySelector('#sidebarToggle')
+const railSidebarToggle = document.querySelector('#railSidebarToggle')
 const inspector = document.querySelector('#inspector')
-const inspectorToggle = document.querySelector('#inspectorToggle')
+const inspectorEdgeToggle = document.querySelector('#inspectorEdgeToggle')
 const inspectorClose = document.querySelector('#inspectorClose')
 const inspectorContent = document.querySelector('#inspectorContent')
+const headerStatus = document.querySelector('#headerStatus')
 const tabs = Array.from(document.querySelectorAll('.tab'))
 
 const state = {
@@ -16,9 +20,11 @@ const state = {
   messages: [],
   activeRun: null,
   tools: [],
-  liveStatusNode: null,
   resizingLeft: false,
-  inspectorTab: 'tools'
+  inspectorTab: 'tools',
+  sidebarCollapsed: false,
+  inspectorOpen: false,
+  runStatus: 'Ready'
 }
 
 composer?.addEventListener('submit', (event) => {
@@ -26,14 +32,28 @@ composer?.addEventListener('submit', (event) => {
   void sendPrompt()
 })
 
-newChatButton?.addEventListener('click', () => {
+promptInput?.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter' && !event.shiftKey) {
+    event.preventDefault()
+    void sendPrompt()
+  }
+})
+
+newChatButton?.addEventListener('click', resetChat)
+railNewChatButton?.addEventListener('click', resetChat)
+sidebarToggle?.addEventListener('click', () => setSidebarCollapsed(true))
+railSidebarToggle?.addEventListener('click', () => setSidebarCollapsed(false))
+inspectorEdgeToggle?.addEventListener('click', () => setInspectorOpen(true))
+inspectorClose?.addEventListener('click', () => setInspectorOpen(false))
+
+function resetChat() {
   if (state.activeRun) {
     return
   }
   state.sessionId = null
   state.messages = []
   state.tools = []
-  state.liveStatusNode = null
+  updateRunStatus('Ready')
   setSending(false)
   renderEmptyState()
   renderInspector()
@@ -41,10 +61,7 @@ newChatButton?.addEventListener('click', () => {
     promptInput.value = ''
     promptInput.focus()
   }
-})
-
-inspectorToggle?.addEventListener('click', () => setInspectorOpen(true))
-inspectorClose?.addEventListener('click', () => setInspectorOpen(false))
+}
 
 tabs.forEach((tab) => {
   tab.addEventListener('click', () => {
@@ -55,13 +72,16 @@ tabs.forEach((tab) => {
 })
 
 leftResizeHandle?.addEventListener('pointerdown', (event) => {
+  if (state.sidebarCollapsed) {
+    return
+  }
   state.resizingLeft = true
   document.body.classList.add('is-resizing-left')
   leftResizeHandle.setPointerCapture(event.pointerId)
 })
 
 leftResizeHandle?.addEventListener('pointermove', (event) => {
-  if (!state.resizingLeft || !appShell) {
+  if (!state.resizingLeft || state.sidebarCollapsed || !appShell) {
     return
   }
   const shellLeft = appShell.getBoundingClientRect().left
@@ -93,8 +113,7 @@ async function sendPrompt() {
     promptInput.value = ''
   }
   setSending(true)
-  state.liveStatusNode = null
-  updateStatus('Starting run...')
+  updateRunStatus('Starting run...')
 
   let response
   try {
@@ -139,15 +158,15 @@ async function sendPrompt() {
 function handleRunEvent(event, stream) {
   switch (event.type) {
     case 'thinking_start':
-      updateStatus('Thinking...')
+      updateRunStatus('Thinking...')
       break
     case 'thinking_stop':
-      updateStatus(`Thought for ${formatDuration(event.durationMs)}.`)
+      updateRunStatus(`Thought for ${formatDuration(event.durationMs)}.`)
       break
     case 'tool_start':
       state.tools.push({ type: 'start', name: event.name, summary: event.summary })
       renderInspector()
-      updateStatus(`Using ${event.name}...`)
+      updateRunStatus(`Using ${event.name}...`)
       break
     case 'tool_result':
       state.tools.push({
@@ -158,19 +177,18 @@ function handleRunEvent(event, stream) {
         summary: event.summary
       })
       renderInspector()
-      updateStatus(`${event.name} ${event.ok ? 'completed' : 'failed'} in ${formatDuration(event.durationMs)}.`)
+      updateRunStatus(`${event.name} ${event.ok ? 'completed' : 'failed'} in ${formatDuration(event.durationMs)}.`)
       break
     case 'final':
       appendMessage('assistant', event.text)
       state.messages.push({ role: 'assistant', content: event.text })
-      state.liveStatusNode = null
       finishRun(stream)
       break
     case 'error':
       finishWithError(event.message, stream)
       break
     default:
-      updateStatus(event.type || 'Unknown event')
+      updateRunStatus(event.type || 'Unknown event')
   }
 }
 
@@ -184,7 +202,7 @@ function finishRun(stream) {
 
 function finishWithError(error, stream) {
   appendMessage('error', error instanceof Error ? error.message : String(error))
-  state.liveStatusNode = null
+  updateRunStatus('Error')
   finishRun(stream || state.activeRun)
 }
 
@@ -198,14 +216,11 @@ function appendMessage(kind, text) {
   return node
 }
 
-function updateStatus(text) {
-  clearEmptyState()
-  if (!state.liveStatusNode?.isConnected) {
-    state.liveStatusNode = appendMessage('status', text)
-    return
+function updateRunStatus(text) {
+  state.runStatus = text
+  if (headerStatus) {
+    headerStatus.textContent = text
   }
-  state.liveStatusNode.textContent = text
-  messages?.scrollTo({ top: messages.scrollHeight, behavior: 'smooth' })
 }
 
 function clearEmptyState() {
@@ -226,11 +241,21 @@ function renderEmptyState() {
   messages?.append(node)
 }
 
+function setSidebarCollapsed(collapsed) {
+  state.sidebarCollapsed = collapsed
+  appShell?.classList.toggle('sidebar-collapsed', collapsed)
+  sidebarToggle?.setAttribute('aria-expanded', String(!collapsed))
+  sidebarToggle?.setAttribute('aria-label', collapsed ? 'Expand sidebar' : 'Collapse sidebar')
+  sidebarToggle?.setAttribute('title', collapsed ? 'Expand sidebar' : 'Collapse sidebar')
+  railSidebarToggle?.setAttribute('aria-expanded', String(!collapsed))
+}
+
 function setInspectorOpen(open) {
+  state.inspectorOpen = open
   appShell?.classList.toggle('inspector-open', open)
   inspector?.classList.toggle('is-open', open)
   inspector?.setAttribute('aria-hidden', String(!open))
-  inspectorToggle?.setAttribute('aria-expanded', String(open))
+  inspectorEdgeToggle?.setAttribute('aria-expanded', String(open))
 }
 
 function renderInspector() {
@@ -294,6 +319,10 @@ function setSending(isSending) {
   if (newChatButton) {
     newChatButton.disabled = isSending || state.activeRun !== null
   }
+  if (railNewChatButton) {
+    railNewChatButton.disabled = isSending || state.activeRun !== null
+  }
+  appShell?.classList.toggle('run-active', isSending)
 }
 
 function formatDuration(durationMs) {

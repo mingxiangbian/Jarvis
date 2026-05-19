@@ -13,40 +13,56 @@
 
     <main class="app-shell" aria-label="Prism Console">
       <aside id="sidebar" class="sidebar glass-panel" aria-label="Workspace">
-        <div class="brand">
-          <div class="brand-mark" aria-hidden="true"></div>
-          <div>
-            <h1>Prism Console</h1>
-            <p>Local agent runs</p>
+        <div class="sidebar-full">
+          <div class="brand-row">
+            <div class="brand">
+              <div class="brand-mark" aria-hidden="true"></div>
+              <div>
+                <h1>Prism Console</h1>
+                <p>Local agent runs</p>
+              </div>
+            </div>
+            <button id="sidebarToggle" class="icon-button icon-only" type="button" aria-label="Collapse sidebar" aria-expanded="true" title="Collapse sidebar">
+              <span aria-hidden="true">‹</span>
+            </button>
           </div>
+
+          <nav class="nav-list" aria-label="Primary">
+            <button id="newChatButton" class="nav-action" type="button">New chat</button>
+            <a class="nav-item is-active" href="#chat">Console</a>
+          </nav>
+
+          <section class="sidebar-card" aria-label="Session">
+            <p class="eyebrow">Current session</p>
+            <h2>Page-local chat</h2>
+            <p>Messages stay in this tab.</p>
+          </section>
         </div>
 
-        <nav class="nav-list" aria-label="Primary">
-          <a class="nav-item is-active" href="#chat">Console</a>
-          <a class="nav-item" href="#context">Context</a>
-          <a class="nav-item" href="#tools">Tools</a>
-        </nav>
-
-        <section class="sidebar-card" aria-label="Session">
-          <p class="eyebrow">Current session</p>
-          <h2>Page-local chat</h2>
-          <p>Messages stay in this tab and are sent as user and assistant turns.</p>
-        </section>
+        <div id="sidebarRail" class="sidebar-rail" aria-label="Collapsed workspace">
+          <button id="railSidebarToggle" class="rail-button" type="button" aria-label="Expand sidebar" aria-expanded="false" title="Expand sidebar">
+            <span aria-hidden="true">›</span>
+          </button>
+          <button id="railNewChatButton" class="rail-button" type="button" aria-label="New chat" title="New chat">
+            <span aria-hidden="true">＋</span>
+          </button>
+          <a class="rail-button is-active" href="#chat" aria-label="Console" title="Console">
+            <span aria-hidden="true">⌁</span>
+          </a>
+        </div>
       </aside>
 
       <div id="leftResizeHandle" class="left-resize-handle" role="separator" aria-orientation="vertical" aria-label="Resize sidebar"></div>
 
       <section id="chat" class="chat-shell glass-panel" aria-label="Chat">
         <header class="chat-header">
-          <div>
+          <div class="chat-title">
             <p class="eyebrow">Prism Web UI</p>
             <h2>Agent run console</h2>
-          </div>
-          <div class="header-actions">
-            <button id="newChatButton" class="ghost-button" type="button">New chat</button>
-            <button id="inspectorToggle" class="icon-button" type="button" aria-controls="inspector" aria-expanded="false">
-              Inspector
-            </button>
+            <div class="run-status-row" aria-live="polite">
+              <span id="headerStatus" class="run-status-text">Ready</span>
+            </div>
+            <div class="run-status-line" aria-hidden="true"></div>
           </div>
         </header>
 
@@ -64,6 +80,10 @@
           <button id="sendButton" class="send-button" type="submit">Send</button>
         </form>
       </section>
+
+      <button id="inspectorEdgeToggle" class="inspector-edge-toggle" type="button" aria-controls="inspector" aria-expanded="false" aria-label="Open inspector" title="Open inspector">
+        <span aria-hidden="true">‹</span>
+      </button>
 
       <aside id="inspector" class="inspector glass-panel" aria-label="Inspector" aria-hidden="true">
         <header class="inspector-header">
