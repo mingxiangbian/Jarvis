@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Prism Console</title>
+    <title>Cyrene</title>
     <link rel="stylesheet" href="/static/styles.css">
   </head>
   <body>
@@ -11,15 +11,14 @@
     <div class="ambient ambient-cyan"></div>
     <div class="prism-light"></div>
 
-    <main class="app-shell" aria-label="Prism Console">
+    <main class="app-shell" aria-label="Cyrene">
       <aside id="sidebar" class="sidebar glass-panel" aria-label="Workspace">
         <div class="sidebar-full">
           <div class="brand-row">
             <div class="brand">
-              <div class="brand-mark" aria-hidden="true"></div>
+              <div class="brand-avatar avatar-realistic" aria-hidden="true"></div>
               <div>
-                <h1>Prism Console</h1>
-                <p>Local agent runs</p>
+                <h1>Cyrene</h1>
               </div>
             </div>
             <button id="sidebarToggle" class="icon-button icon-only" type="button" aria-label="Collapse sidebar" aria-expanded="true" title="Collapse sidebar">
@@ -30,12 +29,6 @@
           <div class="nav-list" aria-label="Primary">
             <button id="newChatButton" class="nav-action" type="button">New chat</button>
           </div>
-
-          <section class="sidebar-card" aria-label="Session">
-            <p class="eyebrow">Current session</p>
-            <h2>Page-local chat</h2>
-            <p>Messages stay in this tab.</p>
-          </section>
         </div>
 
         <div id="sidebarRail" class="sidebar-rail" aria-label="Collapsed workspace">
@@ -53,8 +46,7 @@
       <section id="chat" class="chat-shell glass-panel" aria-label="Chat">
         <header class="chat-header">
           <div class="chat-title">
-            <p class="eyebrow">Prism Web UI</p>
-            <h2>Agent run console</h2>
+            <h2>Untitled session</h2>
             <div class="run-status-row" aria-live="polite">
               <span id="headerStatus" class="run-status-text">Ready</span>
             </div>
@@ -71,7 +63,7 @@
           <div class="empty-state">
             <div class="empty-orbit" aria-hidden="true"></div>
             <p class="eyebrow">Ready</p>
-            <h3>Ask Prism to work through a local task.</h3>
+            <h3>Ask Cyrene to work through a local task.</h3>
             <p>Run status and tool activity will stream here as the agent responds.</p>
           </div>
         </section>
@@ -86,7 +78,7 @@
         <header class="inspector-header">
           <div>
             <p class="eyebrow">Run details</p>
-            <h2>Inspector</h2>
+            <h2>Cyrene</h2>
           </div>
           <button id="inspectorClose" class="icon-button" type="button" aria-label="Close inspector">Close</button>
         </header>
