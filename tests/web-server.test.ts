@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -91,8 +91,9 @@ describe('startWebServer', () => {
     expect(createBody.runId).toEqual(expect.any(String))
     expect(createBody.sessionId).toEqual(expect.any(String))
 
-    const streamResponse = await fetch(`${server.url}/api/runs/${createBody.runId}/events`)
-    const streamBody = await streamResponse.text()
+    const { response: streamResponse, body: streamBody } = await readRunEventStream(
+      `${server.url}/api/runs/${createBody.runId}/events`
+    )
 
     expect(streamResponse.status).toBe(200)
     expect(streamResponse.headers.get('content-type')).toContain('text/event-stream')
@@ -102,6 +103,74 @@ describe('startWebServer', () => {
     expect(callModel).toHaveBeenCalledWith(expect.objectContaining({
       messages: expect.arrayContaining([{ role: 'user', content: 'hello web' }])
     } satisfies Partial<CallModelInput>))
+  })
+
+  it('streams tool events before the final response', async () => {
+    const cwd = await createTempCwd()
+    await writeFile(join(cwd, 'package.json'), '{"name":"web-prism-console-test"}\n')
+    const callModel = vi.fn(async (): Promise<ModelResponse> => {
+      if (callModel.mock.calls.length === 1) {
+        return {
+          content: '',
+          toolCalls: [{
+            id: 'call-glob-package',
+            type: 'function',
+            function: {
+              name: 'glob',
+              arguments: JSON.stringify({ pattern: 'package.json' })
+            }
+          }]
+        }
+      }
+
+      return { content: 'found package', toolCalls: [] }
+    })
+    const server = await startWebServer({
+      cwd,
+      host: '127.0.0.1',
+      port: 0,
+      callModel
+    })
+    servers.push(server)
+
+    const createResponse = await fetch(`${server.url}/api/runs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ message: 'find package' })
+    })
+    expect(createResponse.status).toBe(202)
+    const createBody = (await createResponse.json()) as { runId: string }
+
+    const { body: streamBody } = await readRunEventStream(`${server.url}/api/runs/${createBody.runId}/events`)
+
+    expect(streamBody).toContain('"type":"tool_start","name":"glob","summary":"package.json"')
+    expect(streamBody).toContain('"type":"tool_result","name":"glob","ok":true')
+    expect(streamBody).toContain('"summary":"package.json"')
+    expect(streamBody).toContain('"type":"final","text":"found package"')
+    expect(streamBody.indexOf('"type":"tool_start"')).toBeLessThan(streamBody.indexOf('"type":"tool_result"'))
+    expect(streamBody.indexOf('"type":"tool_result"')).toBeLessThan(streamBody.indexOf('"type":"final"'))
+    expect(callModel).toHaveBeenCalledTimes(2)
+  })
+
+  it('streams concise error events when run fails', async () => {
+    const callModel = vi.fn(async (): Promise<ModelResponse> => {
+      throw new Error('model unavailable')
+    })
+    const server = await startServer(callModel)
+
+    const createResponse = await fetch(`${server.url}/api/runs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ message: 'hello web' })
+    })
+    expect(createResponse.status).toBe(202)
+    const createBody = (await createResponse.json()) as { runId: string }
+
+    const { body: streamBody } = await readRunEventStream(`${server.url}/api/runs/${createBody.runId}/events`)
+
+    expect(streamBody).toContain('"type":"error","message":"model unavailable"')
+    expect(streamBody).not.toContain('at runAgentLoop')
+    expect(callModel).toHaveBeenCalledTimes(1)
   })
 
   it('returns a session id and uses canonical session history on later runs', async () => {
@@ -275,4 +344,30 @@ async function createTempCwd(): Promise<string> {
   const cwd = await mkdtemp(join(tmpdir(), 'cc-local-web-server-'))
   tempDirs.push(cwd)
   return cwd
+}
+
+async function readRunEventStream(url: string): Promise<{ response: Response; body: string }> {
+  const response = await fetch(url)
+  const reader = response.body?.getReader()
+  if (reader === undefined) {
+    return { response, body: '' }
+  }
+
+  const decoder = new TextDecoder()
+  let body = ''
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) {
+      break
+    }
+
+    body += decoder.decode(value, { stream: true })
+    if (body.includes('"type":"final"') || body.includes('"type":"error"')) {
+      await reader.cancel()
+      break
+    }
+  }
+  body += decoder.decode()
+
+  return { response, body }
 }
