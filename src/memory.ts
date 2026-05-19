@@ -4,6 +4,15 @@ import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import type { AppConfig } from './config.js'
 import type { CallModelInput, ModelResponse } from './llm-client.js'
 
+export type MemoryType = 'user' | 'feedback' | 'project' | 'reference'
+
+interface MemoryIndexLine {
+  title: string
+  file: string
+  summary: string
+  type?: MemoryType
+}
+
 export async function loadInstructionsIfExists(cwd: string): Promise<string> {
   try {
     const content = await readFile(join(cwd, '.cc-local', 'instructions.md'), 'utf8')
@@ -77,13 +86,12 @@ export async function loadMemories(cwd: string): Promise<string> {
   const sections: string[] = []
 
   for (const line of index.split('\n')) {
-    const match = line.match(/^- \[([^\]]+)\]\(([^)]+)\) — .+$/)
-    if (!match) {
+    const entry = parseMemoryIndexLine(line)
+    if (entry === null) {
       continue
     }
 
-    const [, title, filename] = match
-    const memoryFilePath = resolve(memoryDir, filename)
+    const memoryFilePath = resolve(memoryDir, entry.file)
     if (!isPathInside(memoryDir, memoryFilePath)) {
       continue
     }
@@ -95,7 +103,7 @@ export async function loadMemories(cwd: string): Promise<string> {
       }
 
       const content = await readFile(memoryFileRealPath, 'utf8')
-      sections.push(`## Memory: ${title}\n\n${content.trim()}`)
+      sections.push(`${formatMemoryHeading('Memory', entry)}\n\n${content.trim()}`)
     } catch (error) {
       if (isMissingFileError(error)) {
         continue
@@ -177,13 +185,12 @@ export async function loadMemoryScope(memoryDir: string, heading: string): Promi
 
   const sections: string[] = []
   for (const line of index.split('\n')) {
-    const match = line.match(/^- \[([^\]]+)\]\(([^)]+)\) — .+$/)
-    if (!match) {
+    const entry = parseMemoryIndexLine(line)
+    if (entry === null) {
       continue
     }
 
-    const [, title, filename] = match
-    const memoryFilePath = resolve(memoryDir, filename)
+    const memoryFilePath = resolve(memoryDir, entry.file)
     if (!isPathInside(memoryDir, memoryFilePath)) {
       continue
     }
@@ -197,7 +204,7 @@ export async function loadMemoryScope(memoryDir: string, heading: string): Promi
       const content = await readFile(memoryFileRealPath, 'utf8')
       const trimmed = content.trim()
       if (trimmed !== '') {
-        sections.push(`## ${heading}: ${title}\n\n${trimmed}`)
+        sections.push(`${formatMemoryHeading(heading, entry)}\n\n${trimmed}`)
       }
     } catch (error) {
       if (isMissingFileError(error)) {
@@ -238,6 +245,29 @@ function getRuleStackDirectories(cwdRealPath: string, homeRealPath: string): str
   }
 
   return getAncestorDirectories(cwdRealPath)
+}
+
+function parseMemoryIndexLine(line: string): MemoryIndexLine | null {
+  const match = line.match(/^- \[([^\]]+)\]\(([^)]+)\) — (?:\[([^\]]+)\] )?(.+)$/)
+  if (!match) {
+    return null
+  }
+
+  const [, title, file, rawType, summary] = match
+  if (rawType !== undefined && !isMemoryType(rawType)) {
+    return null
+  }
+
+  return {
+    title,
+    file,
+    summary,
+    ...(rawType === undefined ? {} : { type: rawType })
+  }
+}
+
+function formatMemoryHeading(scope: string, entry: MemoryIndexLine): string {
+  return entry.type === undefined ? `## ${scope}: ${entry.title}` : `## ${scope} [${entry.type}]: ${entry.title}`
 }
 
 export async function loadRecentSummaries(cwd: string, count: number): Promise<string> {
@@ -320,7 +350,7 @@ export type MemoryWriteResult = { ok: true; file: string } | { ok: false; error:
 
 export async function writeMemoryEntry(
   cwd: string,
-  entry: { title: string; file: string; summary: string; content: string },
+  entry: { title: string; file: string; summary: string; content: string; type?: MemoryType },
   limits: MemoryWriteLimits
 ): Promise<MemoryWriteResult> {
   try {
@@ -369,6 +399,7 @@ export type CompactMemoriesResult = { ok: true; promoted: number } | { ok: false
 interface CompactedMemoryEntry {
   title: string
   file: string
+  type: MemoryType
   summary: string
   content: string
 }
@@ -382,6 +413,7 @@ Return only JSON in this shape:
     {
       "title": "Short title",
       "file": "lowercase-kebab-file.md",
+      "type": "project",
       "summary": "one-line summary",
       "content": "durable memory markdown"
     }
@@ -394,6 +426,11 @@ Rules:
 - Omit routine command noise and transient failures.
 - Use relative file names inside the memory directory.
 - Keep each summary concise and one line.
+- Classify each memory with exactly one type:
+  - user: user preferences, identity, role, and long-term habits.
+  - feedback: user corrections, feedback about agent behavior, and future working rules.
+  - project: project decisions, architecture conventions, and codebase facts.
+  - reference: external systems, links, documents, accounts, or environment references.
 
 Daily memory:
 ${dailyContent}`
@@ -431,7 +468,7 @@ export async function compactMemories(input: CompactMemoriesInput): Promise<Comp
 
 export async function updateMemoryIndex(
   cwd: string,
-  entry: { title: string; file: string; summary: string }
+  entry: { title: string; file: string; summary: string; type?: MemoryType }
 ): Promise<void> {
   validateMemoryIndexEntry(entry)
 
@@ -622,17 +659,19 @@ function parseCompactedMemoryEntries(content: string): CompactedMemoryEntry[] {
       throw new Error('Expected memory entry object')
     }
 
-    const { title, file, summary, content } = entry
+    const { title, file, type, summary, content } = entry
     if (
       typeof title !== 'string' ||
       typeof file !== 'string' ||
+      typeof type !== 'string' ||
+      !isMemoryType(type) ||
       typeof summary !== 'string' ||
       typeof content !== 'string'
     ) {
       throw new Error('Expected string memory entry fields')
     }
 
-    return { title, file, summary, content }
+    return { title, file, type, summary, content }
   })
 }
 
@@ -710,17 +749,22 @@ async function readMemoryIndexIfExists(memoryIndexPath: string): Promise<string>
 async function appendMemoryIndexEntry(
   memoryIndexPath: string,
   existingIndex: string,
-  entry: { title: string; file: string; summary: string }
+  entry: { title: string; file: string; summary: string; type?: MemoryType }
 ): Promise<void> {
   const prefix = existingIndex === '' || existingIndex.endsWith('\n') ? '' : '\n'
-  await appendNoFollow(memoryIndexPath, `${prefix}- [${entry.title}](${entry.file}) — ${entry.summary}\n`)
+  const typePrefix = entry.type === undefined ? '' : `[${entry.type}] `
+  await appendNoFollow(memoryIndexPath, `${prefix}- [${entry.title}](${entry.file}) — ${typePrefix}${entry.summary}\n`)
 }
 
-function validateMemoryIndexEntry(entry: { title: string; file: string; summary: string }): void {
+function validateMemoryIndexEntry(entry: { title: string; file: string; summary: string; type?: unknown }): void {
   for (const value of [entry.title, entry.file, entry.summary]) {
     if (value.includes('\n') || value.includes('\r')) {
       throw new Error('Memory index entries cannot contain newlines')
     }
+  }
+
+  if (entry.type !== undefined && (typeof entry.type !== 'string' || !isMemoryType(entry.type))) {
+    throw new Error(`Invalid memory type: ${String(entry.type)}`)
   }
 }
 
@@ -751,6 +795,10 @@ function parseSessionFilename(filename: string): { date: string; suffix: number 
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
+}
+
+function isMemoryType(value: string): value is MemoryType {
+  return value === 'user' || value === 'feedback' || value === 'project' || value === 'reference'
 }
 
 function getAncestorDirectories(cwdRealPath: string, stopExclusive?: string): string[] {

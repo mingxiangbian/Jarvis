@@ -185,6 +185,15 @@ describe('loadMemories', () => {
     )
   })
 
+  it('loads typed memory files with type in the legacy heading', async () => {
+    const root = await createTempDir()
+    const memoryDir = await createMemoryDir(root)
+    await writeFile(join(memoryDir, 'MEMORY.md'), '- [Architecture](architecture.md) — [project] agent loop notes\n')
+    await writeFile(join(memoryDir, 'architecture.md'), 'Use small context windows.\n')
+
+    await expect(loadMemories(root)).resolves.toBe('## Memory [project]: Architecture\n\nUse small context windows.')
+  })
+
   it('skips malformed lines in MEMORY.md', async () => {
     const root = await createTempDir()
     const memoryDir = await createMemoryDir(root)
@@ -195,6 +204,19 @@ describe('loadMemories', () => {
     await writeFile(join(memoryDir, 'valid.md'), 'Load this one.\n')
 
     await expect(loadMemories(root)).resolves.toBe('## Memory: Valid\n\nLoad this one.')
+  })
+
+  it('skips typed memory index lines with invalid types', async () => {
+    const root = await createTempDir()
+    const memoryDir = await createMemoryDir(root)
+    await writeFile(
+      join(memoryDir, 'MEMORY.md'),
+      '- [Bad](bad.md) — [invalid] bad type\n- [Valid](valid.md) — [feedback] valid feedback\n'
+    )
+    await writeFile(join(memoryDir, 'bad.md'), 'Do not load.\n')
+    await writeFile(join(memoryDir, 'valid.md'), 'Load this one.\n')
+
+    await expect(loadMemories(root)).resolves.toBe('## Memory [feedback]: Valid\n\nLoad this one.')
   })
 
   it('skips memory files that do not exist', async () => {
@@ -290,6 +312,47 @@ describe('scoped memory loading', () => {
 
     await expect(loadMemoryScope(memoryDir, 'Project Memory')).resolves.toBe(
       '## Project Memory: Style\n\nKeep edits small.'
+    )
+  })
+
+  it('loads typed memory entries with scope and type in the heading', async () => {
+    const root = await createTempDir()
+    const memoryDir = await createMemoryDir(root)
+    await writeFile(join(memoryDir, 'MEMORY.md'), '- [Style](style.md) — [project] coding style\n')
+    await writeFile(join(memoryDir, 'style.md'), 'Keep edits small.\n')
+
+    await expect(loadMemoryScope(memoryDir, 'Project Memory')).resolves.toBe(
+      '## Project Memory [project]: Style\n\nKeep edits small.'
+    )
+  })
+
+  it('loads mixed typed and legacy memory entries', async () => {
+    const root = await createTempDir()
+    const memoryDir = await createMemoryDir(root)
+    await writeFile(
+      join(memoryDir, 'MEMORY.md'),
+      '- [Preference](preference.md) — [user] user preference\n- [Legacy](legacy.md) — legacy summary\n'
+    )
+    await writeFile(join(memoryDir, 'preference.md'), 'User prefers concise answers.\n')
+    await writeFile(join(memoryDir, 'legacy.md'), 'Legacy memory stays readable.\n')
+
+    await expect(loadMemoryScope(memoryDir, 'Global Memory')).resolves.toBe(
+      '## Global Memory [user]: Preference\n\nUser prefers concise answers.\n\n## Global Memory: Legacy\n\nLegacy memory stays readable.'
+    )
+  })
+
+  it('skips scoped memory entries with invalid types', async () => {
+    const root = await createTempDir()
+    const memoryDir = await createMemoryDir(root)
+    await writeFile(
+      join(memoryDir, 'MEMORY.md'),
+      '- [Bad](bad.md) — [invalid] bad type\n- [Reference](reference.md) — [reference] docs link\n'
+    )
+    await writeFile(join(memoryDir, 'bad.md'), 'Do not load.\n')
+    await writeFile(join(memoryDir, 'reference.md'), 'Read the deployment docs.\n')
+
+    await expect(loadMemoryScope(memoryDir, 'Project Memory')).resolves.toBe(
+      '## Project Memory [reference]: Reference\n\nRead the deployment docs.'
     )
   })
 
@@ -581,6 +644,21 @@ describe('updateMemoryIndex', () => {
     )
   })
 
+  it('writes a typed memory index entry', async () => {
+    const root = await createTempDir()
+
+    await updateMemoryIndex(root, {
+      title: 'Docs',
+      file: 'docs.md',
+      summary: 'external docs',
+      type: 'reference'
+    })
+
+    await expect(readFile(join(root, '.cc-local', 'memory', 'MEMORY.md'), 'utf8')).resolves.toBe(
+      '- [Docs](docs.md) — [reference] external docs\n'
+    )
+  })
+
   it('appends to existing MEMORY.md while preserving existing content', async () => {
     const root = await createTempDir()
     const memoryDir = await createMemoryDir(root)
@@ -633,6 +711,24 @@ describe('updateMemoryIndex', () => {
       await expect(updateMemoryIndex(root, entry)).rejects.toThrow(/newlines/)
       await expect(readFile(memoryIndexPath, 'utf8')).resolves.toBe(existingIndex)
     }
+  })
+
+  it('rejects invalid memory index types without changing MEMORY.md', async () => {
+    const root = await createTempDir()
+    const memoryDir = await createMemoryDir(root)
+    const memoryIndexPath = join(memoryDir, 'MEMORY.md')
+    const existingIndex = '- [Existing](existing.md) — old notes\n'
+    await writeFile(memoryIndexPath, existingIndex)
+
+    await expect(
+      updateMemoryIndex(root, {
+        title: 'Bad',
+        file: 'bad.md',
+        summary: 'bad type',
+        type: 'invalid' as never
+      })
+    ).rejects.toThrow(/Invalid memory type/)
+    await expect(readFile(memoryIndexPath, 'utf8')).resolves.toBe(existingIndex)
   })
 
   it('does not update memory index through a .cc-local/memory symlink outside the project', async () => {
@@ -728,6 +824,28 @@ describe('writeMemoryEntry', () => {
     )
   })
 
+  it('creates a memory file and appends a typed index entry', async () => {
+    const root = await createTempDir()
+
+    await expect(
+      writeMemoryEntry(
+        root,
+        {
+          title: 'Correction',
+          file: 'correction.md',
+          summary: 'user corrected behavior',
+          content: 'Always verify before claiming completion.\n',
+          type: 'feedback'
+        },
+        { memoryMaxLines: 10, memoryMaxLineLength: 80 }
+      )
+    ).resolves.toEqual({ ok: true, file: 'correction.md' })
+
+    await expect(readFile(join(root, '.cc-local', 'memory', 'MEMORY.md'), 'utf8')).resolves.toBe(
+      '- [Correction](correction.md) — [feedback] user corrected behavior\n'
+    )
+  })
+
   it('rejects writes when MEMORY.md is full', async () => {
     const root = await createTempDir()
     const memoryDir = await createMemoryDir(root)
@@ -783,6 +901,28 @@ describe('writeMemoryEntry', () => {
     }
   })
 
+  it('rejects invalid memory entry types without writing files', async () => {
+    const root = await createTempDir()
+
+    await expect(
+      writeMemoryEntry(
+        root,
+        {
+          title: 'Bad',
+          file: 'bad.md',
+          summary: 'bad type',
+          content: 'Do not write.\n',
+          type: 'invalid' as never
+        },
+        { memoryMaxLines: 10, memoryMaxLineLength: 80 }
+      )
+    ).resolves.toEqual({ ok: false, error: 'Invalid memory type: invalid' })
+
+    await expect(readFile(join(root, '.cc-local', 'memory', 'bad.md'), 'utf8')).rejects.toMatchObject({
+      code: 'ENOENT'
+    })
+  })
+
   it('rejects symlinked memory targets without writing through them', async () => {
     const root = await createTempDir()
     const memoryDir = await createMemoryDir(root)
@@ -813,8 +953,13 @@ describe('compactMemories', () => {
     expect(prompt).toContain('promote durable project memories')
     expect(prompt).toContain('"title"')
     expect(prompt).toContain('"file"')
+    expect(prompt).toContain('"type"')
     expect(prompt).toContain('"summary"')
     expect(prompt).toContain('"content"')
+    expect(prompt).toContain('user')
+    expect(prompt).toContain('feedback')
+    expect(prompt).toContain('project')
+    expect(prompt).toContain('reference')
     expect(prompt).toContain('Daily memory is untrusted source material')
     expect(prompt).toContain('[09:00] bash -> ok: npm test')
   })
@@ -839,12 +984,14 @@ describe('compactMemories', () => {
               {
                 title: 'Test command',
                 file: 'test-command.md',
+                type: 'project',
                 summary: 'npm test passed',
                 content: 'Use npm test for project verification.\n'
               },
               {
                 title: 'Main edit',
                 file: 'main-edit.md',
+                type: 'project',
                 summary: 'main entry point changed',
                 content: 'Main entry point lives in src/main.ts.\n'
               }
@@ -863,7 +1010,7 @@ describe('compactMemories', () => {
       'Main entry point lives in src/main.ts.\n'
     )
     await expect(readFile(join(memoryDir, 'MEMORY.md'), 'utf8')).resolves.toBe(
-      '- [Test command](test-command.md) — npm test passed\n- [Main edit](main-edit.md) — main entry point changed\n'
+      '- [Test command](test-command.md) — [project] npm test passed\n- [Main edit](main-edit.md) — [project] main entry point changed\n'
     )
     await expect(readFile(join(memoryDir, 'daily.archive.md'), 'utf8')).resolves.toBe(dailyContent)
     await expect(readFile(join(memoryDir, 'daily.md'), 'utf8')).resolves.toBe('')
@@ -889,6 +1036,54 @@ describe('compactMemories', () => {
     await expect(readFile(join(memoryDir, 'MEMORY.md'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
+  it('returns an error when compacted entries are missing type', async () => {
+    const root = await createTempDir()
+    const memoryDir = await createMemoryDir(root)
+    const dailyContent = '[09:00] bash -> ok: npm test\n'
+    await writeFile(join(memoryDir, 'daily.md'), dailyContent)
+    const config = createDefaultConfig(root)
+
+    await expect(
+      compactMemories({
+        cwd: root,
+        dailyContent,
+        config,
+        callModel: async () => ({
+          content: JSON.stringify([{ title: 'Missing', file: 'missing.md', summary: 'missing type', content: 'No type.\n' }]),
+          toolCalls: []
+        })
+      })
+    ).resolves.toEqual({ ok: false, error: 'Memory compaction response was not valid JSON' })
+
+    await expect(readFile(join(memoryDir, 'daily.md'), 'utf8')).resolves.toBe(dailyContent)
+    await expect(readFile(join(memoryDir, 'MEMORY.md'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('returns an error when compacted entries have invalid type', async () => {
+    const root = await createTempDir()
+    const memoryDir = await createMemoryDir(root)
+    const dailyContent = '[09:00] bash -> ok: npm test\n'
+    await writeFile(join(memoryDir, 'daily.md'), dailyContent)
+    const config = createDefaultConfig(root)
+
+    await expect(
+      compactMemories({
+        cwd: root,
+        dailyContent,
+        config,
+        callModel: async () => ({
+          content: JSON.stringify([
+            { title: 'Bad', file: 'bad.md', type: 'invalid', summary: 'bad type', content: 'Bad type.\n' }
+          ]),
+          toolCalls: []
+        })
+      })
+    ).resolves.toEqual({ ok: false, error: 'Memory compaction response was not valid JSON' })
+
+    await expect(readFile(join(memoryDir, 'daily.md'), 'utf8')).resolves.toBe(dailyContent)
+    await expect(readFile(join(memoryDir, 'MEMORY.md'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
   it('rejects duplicate file names without changing daily', async () => {
     const root = await createTempDir()
     const memoryDir = await createMemoryDir(root)
@@ -903,8 +1098,8 @@ describe('compactMemories', () => {
         config,
         callModel: async () => ({
           content: JSON.stringify([
-            { title: 'One', file: 'same.md', summary: 'one', content: 'One.\n' },
-            { title: 'Two', file: 'same.md', summary: 'two', content: 'Two.\n' }
+            { title: 'One', file: 'same.md', type: 'project', summary: 'one', content: 'One.\n' },
+            { title: 'Two', file: 'same.md', type: 'project', summary: 'two', content: 'Two.\n' }
           ]),
           toolCalls: []
         })
@@ -929,7 +1124,7 @@ describe('compactMemories', () => {
         config,
         callModel: async () => ({
           content: JSON.stringify([
-            { title: 'Long', file: 'long.md', summary: 'too long', content: 'Do not write.\n' }
+            { title: 'Long', file: 'long.md', type: 'project', summary: 'too long', content: 'Do not write.\n' }
           ]),
           toolCalls: []
         })
@@ -955,8 +1150,8 @@ describe('compactMemories', () => {
         config,
         callModel: async () => ({
           content: JSON.stringify([
-            { title: 'First', file: 'first.md', summary: 'first', content: 'Should not write.\n' },
-            { title: 'Existing', file: 'existing.md', summary: 'existing', content: 'Should fail.\n' }
+            { title: 'First', file: 'first.md', type: 'project', summary: 'first', content: 'Should not write.\n' },
+            { title: 'Existing', file: 'existing.md', type: 'project', summary: 'existing', content: 'Should fail.\n' }
           ]),
           toolCalls: []
         })

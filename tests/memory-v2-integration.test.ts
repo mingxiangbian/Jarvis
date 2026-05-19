@@ -99,6 +99,7 @@ describe('Memory v2 integration', () => {
             {
               title: 'Echo fact',
               file: 'echo-fact.md',
+              type: 'project',
               summary: 'echo tool recorded a fact',
               content: 'The echo tool recorded memory fact.\n'
             }
@@ -111,7 +112,7 @@ describe('Memory v2 integration', () => {
     await expect(loadDailyRaw(project)).resolves.toBe('')
     await expect(readFile(join(project, '.cc-local', 'memory', 'daily.archive.md'), 'utf8')).resolves.toBe(dailyRaw)
     await expect(loadProjectMemories(project)).resolves.toBe(
-      '## Project Memory: Echo fact\n\nThe echo tool recorded memory fact.'
+      '## Project Memory [project]: Echo fact\n\nThe echo tool recorded memory fact.'
     )
     await expect(loadSoul(userCcLocalDir)).resolves.toBe('## Global Persona\n\nBe concise.')
     await expect(loadRuleStack(project, userCcLocalDir)).resolves.toContain('Workspace rule.')
