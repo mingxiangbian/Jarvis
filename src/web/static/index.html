@@ -27,10 +27,9 @@
             </button>
           </div>
 
-          <nav class="nav-list" aria-label="Primary">
+          <div class="nav-list" aria-label="Primary">
             <button id="newChatButton" class="nav-action" type="button">New chat</button>
-            <a class="nav-item is-active" href="#chat">Console</a>
-          </nav>
+          </div>
 
           <section class="sidebar-card" aria-label="Session">
             <p class="eyebrow">Current session</p>
@@ -46,9 +45,6 @@
           <button id="railNewChatButton" class="rail-button" type="button" aria-label="New chat" title="New chat">
             <span aria-hidden="true">＋</span>
           </button>
-          <a class="rail-button is-active" href="#chat" aria-label="Console" title="Console">
-            <span aria-hidden="true">⌁</span>
-          </a>
         </div>
       </aside>
 
@@ -63,6 +59,11 @@
               <span id="headerStatus" class="run-status-text">Ready</span>
             </div>
             <div class="run-status-line" aria-hidden="true"></div>
+          </div>
+          <div class="chat-actions">
+            <button id="inspectorEdgeToggle" class="inspector-edge-toggle" type="button" aria-controls="inspector" aria-expanded="false" aria-label="Open inspector" title="Open inspector">
+              <span aria-hidden="true">‹</span>
+            </button>
           </div>
         </header>
 
@@ -80,10 +81,6 @@
           <button id="sendButton" class="send-button" type="submit">Send</button>
         </form>
       </section>
-
-      <button id="inspectorEdgeToggle" class="inspector-edge-toggle" type="button" aria-controls="inspector" aria-expanded="false" aria-label="Open inspector" title="Open inspector">
-        <span aria-hidden="true">‹</span>
-      </button>
 
       <aside id="inspector" class="inspector glass-panel" aria-label="Inspector" aria-hidden="true">
         <header class="inspector-header">
