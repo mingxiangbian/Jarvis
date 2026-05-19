@@ -170,21 +170,40 @@ button {
   gap: 12px;
 }
 
-.brand-mark {
-  width: 42px;
-  height: 42px;
+.brand-avatar {
+  position: relative;
+  width: 46px;
+  height: 46px;
   flex: 0 0 auto;
-  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.78);
+  border-radius: 18px;
   background:
-    linear-gradient(135deg, rgba(247, 168, 207, 0.94), rgba(174, 239, 255, 0.9)),
-    linear-gradient(45deg, rgba(255, 255, 255, 0.7), transparent);
-  box-shadow: var(--soft-shadow);
+    radial-gradient(circle at 52% 31%, rgba(255, 255, 255, 0.96) 0 8px, transparent 9px),
+    radial-gradient(circle at 36% 42%, rgba(96, 62, 145, 0.86) 0 3px, transparent 4px),
+    radial-gradient(circle at 62% 42%, rgba(96, 62, 145, 0.82) 0 3px, transparent 4px),
+    linear-gradient(145deg, rgba(255, 183, 218, 0.96) 0 38%, rgba(222, 245, 255, 0.94) 39% 69%, rgba(205, 189, 255, 0.88) 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.88), 0 10px 22px rgba(112, 133, 164, 0.16);
+}
+
+.brand-avatar::after {
+  position: absolute;
+  inset: 6px 5px auto auto;
+  width: 16px;
+  height: 26px;
+  border-radius: 999px;
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.84), rgba(174, 239, 255, 0.26));
+  content: "";
+  transform: rotate(24deg);
+}
+
+.avatar-realistic {
+  border-radius: 18px;
 }
 
 .brand h1,
 .chat-header h2,
 .inspector-header h2,
-.sidebar-card h2,
 .empty-state h3 {
   margin: 0;
   letter-spacing: 0;
@@ -196,7 +215,6 @@ button {
 }
 
 .brand p,
-.sidebar-card p,
 .empty-state p,
 .muted {
   color: var(--muted);
@@ -238,29 +256,6 @@ button {
 .nav-action:hover {
   background: rgba(255, 255, 255, 0.62);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72), 0 10px 22px rgba(119, 139, 165, 0.12);
-}
-
-.sidebar-card {
-  display: flex;
-  width: min(100%, 220px);
-  min-height: 118px;
-  flex-direction: column;
-  justify-content: center;
-  margin: auto auto 0;
-  padding: 16px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-  background: rgba(255, 255, 255, 0.48);
-}
-
-.sidebar-card h2 {
-  font-size: 15px;
-}
-
-.sidebar-card p {
-  margin: 8px 0 0;
-  font-size: 13px;
-  line-height: 1.5;
 }
 
 .eyebrow {
@@ -459,13 +454,66 @@ button:disabled {
   box-shadow: 0 20px 60px rgba(146, 163, 190, 0.28);
 }
 
-.message {
+.message-group {
+  display: grid;
+  gap: 8px;
   max-width: min(760px, 86%);
+}
+
+.message-group.assistant {
+  align-self: flex-start;
+}
+
+.message-identity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 4px;
+  color: #59657a;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.assistant-avatar {
+  position: relative;
+  width: 30px;
+  height: 30px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 50% 34%, rgba(255, 255, 255, 0.95) 0 6px, transparent 7px),
+    radial-gradient(circle at 38% 45%, rgba(101, 67, 154, 0.88) 0 2px, transparent 3px),
+    radial-gradient(circle at 61% 45%, rgba(101, 67, 154, 0.82) 0 2px, transparent 3px),
+    linear-gradient(145deg, rgba(255, 174, 214, 0.96), rgba(174, 239, 255, 0.88) 58%, rgba(203, 189, 255, 0.9));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.82), 0 8px 18px rgba(117, 139, 166, 0.14);
+}
+
+.avatar-cartoon::after {
+  position: absolute;
+  right: 4px;
+  bottom: 5px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: rgba(174, 239, 255, 0.9);
+  content: "";
+}
+
+.message {
+  display: flex;
+  align-items: center;
+  max-width: min(760px, 86%);
+  min-height: 52px;
   padding: 14px 16px;
   border: 1px solid var(--line);
   border-radius: 22px;
   background: var(--panel-strong);
   box-shadow: 0 12px 30px rgba(106, 126, 150, 0.12);
+  overflow-wrap: anywhere;
+}
+
+.message-content {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -476,7 +524,9 @@ button:disabled {
 }
 
 .message.assistant {
-  align-self: flex-start;
+  width: 100%;
+  max-width: 100%;
+  background: rgba(255, 255, 255, 0.88);
 }
 
 .message.status {
@@ -493,6 +543,11 @@ button:disabled {
   border-color: rgba(205, 74, 104, 0.28);
   color: #9b2746;
   background: rgba(255, 241, 246, 0.78);
+}
+
+.message.status,
+.message.error {
+  display: block;
 }
 
 .composer {
