@@ -44,8 +44,14 @@ describe('startWebServer', () => {
     expect(body).toContain('id="sidebar"')
     expect(body).toContain('id="messages"')
     expect(body).toContain('id="inspector"')
-    expect(body).toContain('id="inspectorToggle"')
     expect(body).toContain('id="leftResizeHandle"')
+    expect(body).toContain('id="sidebarToggle"')
+    expect(body).toContain('id="sidebarRail"')
+    expect(body).toContain('id="railNewChatButton"')
+    expect(body).toContain('id="headerStatus"')
+    expect(body).toContain('id="inspectorEdgeToggle"')
+    expect(body).not.toContain('href="#context"')
+    expect(body).not.toContain('href="#tools"')
   })
 
   it('serves the Prism visual system from GET /static/styles.css', async () => {
@@ -61,6 +67,28 @@ describe('startWebServer', () => {
     expect(body).toContain('min-width: 1180px')
     expect(body).toContain('.left-resize-handle')
     expect(body).toContain('.inspector.is-open')
+    expect(body).toContain('.app-shell.sidebar-collapsed')
+    expect(body).toContain('.inspector-edge-toggle')
+    expect(body).toContain('.run-status-line')
+    expect(body).toContain('@keyframes prismFocus')
+    expect(body).toContain('@keyframes statusFlow')
+    expect(body).toContain('box-shadow: none')
+  })
+
+  it('serves refined Web UI interaction code from GET /static/app.js', async () => {
+    const server = await startServer()
+
+    const response = await fetch(`${server.url}/static/app.js`)
+    const body = await response.text()
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toContain('text/javascript')
+    expect(body).toContain('sidebarCollapsed')
+    expect(body).toContain('setSidebarCollapsed')
+    expect(body).toContain('headerStatus')
+    expect(body).toContain('event.key === \'Enter\'')
+    expect(body).toContain('event.shiftKey')
+    expect(body).toContain('updateRunStatus(\'Thinking...\')')
   })
 
   it('rejects run creation without a user message', async () => {
