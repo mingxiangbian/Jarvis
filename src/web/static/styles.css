@@ -120,6 +120,7 @@ button {
 .chat-shell,
 .inspector {
   min-height: 0;
+  box-shadow: none;
 }
 
 .sidebar {
@@ -306,6 +307,71 @@ button {
   text-align: center;
 }
 
+.workspace-panel {
+  display: grid;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 14px;
+  border-top: 1px solid rgba(117, 139, 166, 0.18);
+}
+
+.workspace-current {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-change-button,
+.workspace-option {
+  width: 100%;
+  min-width: 0;
+  padding: 9px 10px;
+  border-radius: var(--radius-sm);
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.workspace-change-button {
+  border: 1px solid rgba(255, 255, 255, 0.68);
+  font-size: 12px;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.58);
+}
+
+.workspace-picker {
+  display: grid;
+  gap: 5px;
+  max-height: 160px;
+  min-width: 0;
+  overflow-y: auto;
+}
+
+.workspace-picker[hidden] {
+  display: none;
+}
+
+.workspace-option {
+  border: 1px solid transparent;
+  font-size: 12px;
+  background: transparent;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-change-button:hover,
+.workspace-option:hover,
+.workspace-option.is-active {
+  border-color: rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.62);
+}
+
 .eyebrow {
   margin: 0 0 6px;
   color: #7a7f96;
@@ -320,10 +386,9 @@ button {
   width: 12px;
   border-radius: 999px;
   cursor: col-resize;
-  background: linear-gradient(180deg, transparent, rgba(159, 184, 210, 0.36), transparent);
+  background: transparent;
 }
 
-.left-resize-handle:hover,
 body.is-resizing-left .left-resize-handle {
   background: linear-gradient(180deg, transparent, rgba(247, 168, 207, 0.5), rgba(174, 239, 255, 0.55), transparent);
 }
@@ -691,6 +756,87 @@ button:disabled {
   min-height: 0;
   overflow-y: auto;
   padding: 0 16px 18px;
+}
+
+.context-panel {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.markdown-file-select {
+  width: 100%;
+  min-width: 0;
+  height: 40px;
+  padding: 0 10px;
+  border: 1px solid rgba(117, 139, 166, 0.22);
+  border-radius: var(--radius-sm);
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.markdown-preview {
+  min-width: 0;
+  padding: 13px;
+  border: 1px solid rgba(117, 139, 166, 0.2);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.58);
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.markdown-preview h1,
+.markdown-preview h2,
+.markdown-preview h3,
+.markdown-preview p,
+.markdown-preview ul,
+.markdown-preview pre {
+  margin: 0 0 10px;
+}
+
+.markdown-preview h1,
+.markdown-preview h2,
+.markdown-preview h3 {
+  line-height: 1.25;
+}
+
+.markdown-preview h1 {
+  font-size: 20px;
+}
+
+.markdown-preview h2 {
+  font-size: 17px;
+}
+
+.markdown-preview h3 {
+  font-size: 15px;
+}
+
+.markdown-preview ul {
+  padding-left: 18px;
+}
+
+.markdown-preview li + li {
+  margin-top: 4px;
+}
+
+.markdown-preview pre {
+  max-width: 100%;
+  overflow-x: auto;
+  padding: 10px;
+  border-radius: 12px;
+  background: rgba(36, 48, 68, 0.08);
+}
+
+.markdown-preview code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+}
+
+.markdown-preview > :last-child {
+  margin-bottom: 0;
 }
 
 .tool-card {
