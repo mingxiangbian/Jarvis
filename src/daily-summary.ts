@@ -52,6 +52,11 @@ const genericSummaries = new Set([
   'the assistant answered the question.'
 ])
 
+const genericSummaryPatterns = [
+  /^the user asked (?:a |an )?.*(?:question|task)\.$/i,
+  /^the user provided .*context.*\.$/i
+]
+
 export function hasDailyMemorySignal(userPrompt: string, finalText: string): boolean {
   const combined = `${userPrompt}\n${finalText}`.trim()
   if (explicitMemorySignalPatterns.some((pattern) => pattern.test(combined))) {
@@ -120,7 +125,10 @@ export function validateDailySummary(summary: string, config: AppConfig): boolea
     return false
   }
 
-  if (genericSummaries.has(normalized.toLowerCase())) {
+  if (
+    genericSummaries.has(normalized.toLowerCase()) ||
+    genericSummaryPatterns.some((pattern) => pattern.test(normalized))
+  ) {
     return false
   }
 

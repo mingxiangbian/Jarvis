@@ -109,6 +109,8 @@ describe('daily summary filtering', () => {
       summary: 'Ignored.'
     })
     expect(validateDailySummary('User asked a question.', config)).toBe(false)
+    expect(validateDailySummary('The user asked a follow-up question.', config)).toBe(false)
+    expect(validateDailySummary('The user provided context for the task.', config)).toBe(false)
     expect(validateDailySummary('glob -> ok', config)).toBe(false)
     expect(validateDailySummary('Edited src/agent-loop.ts.', config)).toBe(false)
     expect(validateDailySummary('Modified src/daily-summary.ts to add memory validation.', config)).toBe(false)
@@ -119,6 +121,9 @@ describe('daily summary filtering', () => {
         config
       )
     ).toBe(false)
+    expect(
+      validateDailySummary('Follow-up: update daily memory to reject generic durable-keyword summaries.', config)
+    ).toBe(true)
     expect(
       validateDailySummary(
         'Decision: daily memory should skip ordinary tool calls and remember durable content summaries.',
