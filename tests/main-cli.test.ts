@@ -390,7 +390,7 @@ describe('main CLI', () => {
       request.on('end', () => {
         requestCount += 1
         const parsed = JSON.parse(body) as { messages: Array<{ role: string; content: string }> }
-        const prompt = parsed.messages.map((message) => message.content).join('\n')
+        const prompt = parsed.messages.at(-1)?.content ?? ''
         response.writeHead(200, { 'content-type': 'application/json' })
 
         if (prompt.includes('Review the daily memory log')) {

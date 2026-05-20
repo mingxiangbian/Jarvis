@@ -15,12 +15,12 @@ export interface CompactDailyIfNeededInput {
 }
 
 export async function compactDailyIfNeeded(input: CompactDailyIfNeededInput): Promise<void> {
-  const dailyContent = await loadDailyRaw(input.cwd)
-  if (countNonEmptyLines(dailyContent) < input.config.dailyCompactThreshold) {
-    return
-  }
-
   try {
+    const dailyContent = await loadDailyRaw(input.cwd)
+    if (countNonEmptyLines(dailyContent) < input.config.dailyCompactThreshold) {
+      return
+    }
+
     await (input.compactMemories ?? defaultCompactMemories)({
       cwd: input.cwd,
       dailyContent,

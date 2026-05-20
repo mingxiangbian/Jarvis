@@ -43,6 +43,20 @@ describe('compactDailyIfNeeded', () => {
     await expect(readFile(dailyPath, 'utf8')).resolves.toBe('one\n\n')
   })
 
+  it('does not throw or compact when daily memory cannot be loaded', async () => {
+    const root = await createTempDir()
+    const missingRoot = join(root, 'missing')
+    const config = { ...createDefaultConfig(missingRoot), dailyCompactThreshold: 1 }
+    const compactMemories = vi.fn(async (_input: CompactMemoriesInput): Promise<CompactMemoriesResult> => ({
+      ok: true,
+      promoted: 1
+    }))
+
+    await expect(compactDailyIfNeeded({ cwd: missingRoot, config, compactMemories })).resolves.toBeUndefined()
+
+    expect(compactMemories).not.toHaveBeenCalled()
+  })
+
   it('runs at threshold with raw daily content', async () => {
     const root = await createTempDir()
     const dailyContent = 'one\n\ntwo\n'
