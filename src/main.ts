@@ -1,6 +1,7 @@
 #!/usr/bin/env -S npx tsx
 import { Command } from 'commander'
 import { runAgentLoop } from './agent-loop.js'
+import { compactDailyIfNeeded } from './daily-compaction.js'
 import { runRepl } from './repl.js'
 import { createTerminalObserver } from './ui-observer.js'
 import { buildAgentRuntime } from './web/prompt-context.js'
@@ -69,6 +70,7 @@ async function main(): Promise<void> {
   if (result.toolCallCount > 0) {
     console.error(`tool calls: ${result.toolCallCount}`)
   }
+  await compactDailyIfNeeded({ cwd: config.cwd, config })
 }
 
 main().catch((error: unknown) => {

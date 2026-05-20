@@ -1,5 +1,5 @@
 import { execFile, spawn } from 'node:child_process'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -369,6 +369,96 @@ describe('main CLI', () => {
           resolve()
         })
       })
+    }
+  })
+
+  it('compacts daily memory after a successful one-shot run when the threshold is reached', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'cc-local-main-home-'))
+    const root = join(home, 'workspace')
+    const memoryDir = join(root, '.cc-local', 'memory')
+    await mkdir(memoryDir, { recursive: true })
+    const dailyContent = Array.from({ length: 500 }, (_, index) => `daily line ${index + 1}`).join('\n') + '\n'
+    await writeFile(join(memoryDir, 'daily.md'), dailyContent)
+
+    let requestCount = 0
+    const server = createServer((request, response) => {
+      let body = ''
+      request.setEncoding('utf8')
+      request.on('data', (chunk) => {
+        body += chunk
+      })
+      request.on('end', () => {
+        requestCount += 1
+        const parsed = JSON.parse(body) as { messages: Array<{ role: string; content: string }> }
+        const prompt = parsed.messages.map((message) => message.content).join('\n')
+        response.writeHead(200, { 'content-type': 'application/json' })
+
+        if (prompt.includes('Review the daily memory log')) {
+          response.end(
+            JSON.stringify({
+              choices: [
+                {
+                  message: {
+                    content: JSON.stringify({
+                      memories: [
+                        {
+                          title: 'Daily Project Fact',
+                          file: 'daily-project-fact.md',
+                          type: 'project',
+                          summary: 'daily log reached compaction threshold',
+                          content: 'Daily memory compaction ran after the CLI one-shot completed.\n'
+                        }
+                      ]
+                    })
+                  }
+                }
+              ]
+            })
+          )
+          return
+        }
+
+        response.end(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }))
+      })
+    })
+
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const address = server.address()
+    if (address === null || typeof address === 'string') {
+      throw new Error('Expected TCP server address')
+    }
+
+    try {
+      const result = await execFileAsync(
+        process.execPath,
+        ['node_modules/tsx/dist/cli.mjs', 'src/main.ts', '--cwd', root, 'hello'],
+        {
+          env: cliEnv({
+            HOME: home,
+            CC_LOCAL_BASE_URL: `http://127.0.0.1:${address.port}/v1`
+          })
+        }
+      )
+
+      expect(result.stdout.trim()).toBe('ok')
+      expect(result.stderr).toBe('')
+      expect(requestCount).toBe(2)
+      await expect(readFile(join(memoryDir, 'daily.md'), 'utf8')).resolves.toBe('')
+      await expect(readFile(join(memoryDir, 'daily.archive.md'), 'utf8')).resolves.toBe(dailyContent)
+      await expect(readFile(join(memoryDir, 'daily-project-fact.md'), 'utf8')).resolves.toBe(
+        'Daily memory compaction ran after the CLI one-shot completed.\n'
+      )
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => {
+          if (error) {
+            reject(error)
+            return
+          }
+          resolve()
+        })
+      })
+      await rm(home, { recursive: true, force: true })
     }
   })
 })
