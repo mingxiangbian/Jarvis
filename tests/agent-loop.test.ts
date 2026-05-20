@@ -203,6 +203,33 @@ describe('runAgentLoop', () => {
     expect(calls[0]?.tools).toEqual(toolDefinitionsShape([echoTool.name]))
   })
 
+  it('summarizes session-style runs with the latest user message', async () => {
+    const config = createDefaultConfig('/tmp/project')
+    const messages: ChatMessage[] = [
+      { role: 'system', content: 'system' },
+      { role: 'user', content: 'older request' },
+      { role: 'assistant', content: 'older answer' },
+      { role: 'user', content: 'latest request' }
+    ]
+    const summaryInputs: Array<{ userPrompt: string; finalText: string }> = []
+
+    const result = await runAgentLoop({
+      config,
+      messages,
+      tools: [],
+      dailySummary: {
+        maybeAppendDailySummary: async ({ userPrompt, finalText }) => {
+          summaryInputs.push({ userPrompt, finalText })
+          return true
+        }
+      },
+      callModel: async (): Promise<ModelResponse> => ({ content: 'latest final answer', toolCalls: [] })
+    })
+
+    expect(result.finalText).toBe('latest final answer')
+    expect(summaryInputs).toEqual([{ userPrompt: 'latest request', finalText: 'latest final answer' }])
+  })
+
   it('snips messages before model calls while preserving the caller message array', async () => {
     const config = createDefaultConfig('/tmp/project')
     config.contextWindowTokens = 10

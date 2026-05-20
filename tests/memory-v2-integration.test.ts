@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import { runAgentLoop } from '../src/agent-loop.js'
 import { createDefaultConfig } from '../src/config.js'
-import type { ModelResponse } from '../src/llm-client.js'
+import type { CallModelInput, ModelResponse } from '../src/llm-client.js'
 import {
   compactMemories,
   loadDaily,
@@ -48,7 +48,7 @@ describe('Memory v2 integration', () => {
     await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })))
   })
 
-  it('records daily tool facts and promotes them into durable project memory', async () => {
+  it('records daily content summaries and promotes them into durable project memory', async () => {
     const home = await createTempDir()
     const userCcLocalDir = join(home, '.cc-local')
     const project = join(home, 'workspace', 'project')
@@ -64,9 +64,19 @@ describe('Memory v2 integration', () => {
     const result = await runAgentLoop({
       config,
       systemPrompt: 'system',
-      userPrompt: 'record this',
+      userPrompt: 'Remember the decision that daily memory should store content summaries instead of tool-call logs.',
       tools: [echoTool],
-      callModel: async (): Promise<ModelResponse> => {
+      callModel: async ({ tools }: CallModelInput): Promise<ModelResponse> => {
+        if (tools.length === 0) {
+          return {
+            content: JSON.stringify({
+              shouldRemember: true,
+              summary: 'Decision: daily memory stores durable content summaries instead of tool-call logs.'
+            }),
+            toolCalls: []
+          }
+        }
+
         modelCalls += 1
         if (modelCalls === 1) {
           return {
@@ -81,12 +91,19 @@ describe('Memory v2 integration', () => {
           }
         }
 
-        return { content: 'done', toolCalls: [] }
+        return {
+          content: 'Decision confirmed: daily memory stores durable content summaries instead of tool-call logs.',
+          toolCalls: []
+        }
       }
     })
 
-    expect(result.finalText).toBe('done')
-    await expect(loadDaily(project, 10)).resolves.toMatch(/## Recent Daily Memory\n\n\[\d{2}:\d{2}\] echo -> ok/)
+    expect(result.finalText).toBe(
+      'Decision confirmed: daily memory stores durable content summaries instead of tool-call logs.'
+    )
+    await expect(loadDaily(project, 10)).resolves.toContain(
+      'Decision: daily memory stores durable content summaries instead of tool-call logs.'
+    )
     const dailyRaw = await loadDailyRaw(project)
 
     await expect(
@@ -97,11 +114,11 @@ describe('Memory v2 integration', () => {
         callModel: async () => ({
           content: JSON.stringify([
             {
-              title: 'Echo fact',
-              file: 'echo-fact.md',
+              title: 'Daily Memory Content Summaries',
+              file: 'daily-memory-content-summaries.md',
               type: 'project',
-              summary: 'echo tool recorded a fact',
-              content: 'The echo tool recorded memory fact.\n'
+              summary: 'Daily memory stores durable content summaries instead of tool-call logs.',
+              content: 'Daily memory stores durable content summaries instead of tool-call logs.\n'
             }
           ]),
           toolCalls: []
@@ -112,7 +129,7 @@ describe('Memory v2 integration', () => {
     await expect(loadDailyRaw(project)).resolves.toBe('')
     await expect(readFile(join(project, '.cc-local', 'memory', 'daily.archive.md'), 'utf8')).resolves.toBe(dailyRaw)
     await expect(loadProjectMemories(project)).resolves.toBe(
-      '## Project Memory [project]: Echo fact\n\nThe echo tool recorded memory fact.'
+      '## Project Memory [project]: Daily Memory Content Summaries\n\nDaily memory stores durable content summaries instead of tool-call logs.'
     )
     await expect(loadSoul(userCcLocalDir)).resolves.toBe('## Global Persona\n\nBe concise.')
     await expect(loadRuleStack(project, userCcLocalDir)).resolves.toContain('Workspace rule.')

@@ -8,7 +8,7 @@ import {
 } from './context.js'
 import type { AppConfig } from './config.js'
 import { maybeAppendDailySummary } from './daily-summary.js'
-import { callModel as defaultCallModel, type ChatMessage, type ModelResponse } from './llm-client.js'
+import { callModel as defaultCallModel, type CallModelInput, type ChatMessage, type ModelResponse } from './llm-client.js'
 import { estimateTokensForMessages } from './token-counter.js'
 import { executeToolCall, toolDefinitions } from './tools/index.js'
 import type { Tool, ToolContext } from './tools/types.js'
@@ -28,11 +28,7 @@ interface RunAgentLoopBaseInput {
   dailySummary?: {
     maybeAppendDailySummary: typeof maybeAppendDailySummary
   }
-  callModel?: (input: {
-    config: AppConfig
-    messages: ChatMessage[]
-    tools: unknown[]
-  }) => Promise<ModelResponse>
+  callModel?: (input: CallModelInput) => Promise<ModelResponse>
 }
 
 export type RunAgentLoopInput = RunAgentLoopBaseInput &
@@ -139,7 +135,7 @@ export async function runAgentLoop(input: RunAgentLoopInput): Promise<RunAgentLo
 
       messages.push({ role: 'assistant', content: response.content })
       notifyObserver(() => observer?.onResponse(response.content))
-      await appendDailySummaryAfterFinal(input, response.content, callModel)
+      await appendDailySummaryAfterFinal(input, messages, response.content, callModel)
       return { finalText: response.content, toolCallCount }
     }
 
@@ -210,10 +206,12 @@ export async function runAgentLoop(input: RunAgentLoopInput): Promise<RunAgentLo
 
 async function appendDailySummaryAfterFinal(
   input: RunAgentLoopInput,
+  messages: ChatMessage[],
   finalText: string,
-  callModel: (input: { config: AppConfig; messages: ChatMessage[]; tools: unknown[] }) => Promise<ModelResponse>
+  callModel: (input: CallModelInput) => Promise<ModelResponse>
 ): Promise<void> {
-  if (!('userPrompt' in input) || input.userPrompt === undefined) {
+  const userPrompt = getCurrentUserPrompt(input, messages)
+  if (userPrompt === undefined) {
     return
   }
 
@@ -221,13 +219,28 @@ async function appendDailySummaryAfterFinal(
     await (input.dailySummary?.maybeAppendDailySummary ?? maybeAppendDailySummary)({
       cwd: input.config.cwd,
       config: input.config,
-      userPrompt: input.userPrompt,
+      userPrompt,
       finalText,
       callModel
     })
   } catch {
     // Daily memory is best-effort and must not block the agent loop.
   }
+}
+
+function getCurrentUserPrompt(input: RunAgentLoopInput, messages: ChatMessage[]): string | undefined {
+  if ('userPrompt' in input && input.userPrompt !== undefined) {
+    return input.userPrompt
+  }
+
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]
+    if (message?.role === 'user') {
+      return message.content
+    }
+  }
+
+  return undefined
 }
 
 function notifyObserver(action: () => void): void {
