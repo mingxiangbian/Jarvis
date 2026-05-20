@@ -20,6 +20,13 @@ import {
 } from '../session-store.js'
 import { buildAgentRuntime } from './prompt-context.js'
 import { createWebObserver, errorEvent, type WebRunEvent } from './web-observer.js'
+import {
+  listMarkdownFiles,
+  listWorkspaces,
+  readMarkdownFile,
+  resolveWorkspace,
+  type WorkspaceInfo
+} from './workspaces.js'
 
 export interface StartWebServerInput {
   cwd: string
@@ -37,6 +44,7 @@ export interface WebServerHandle {
 interface RunRecord {
   id: string
   cwd: string
+  workspace: WorkspaceInfo
   sessionId: string
   userMessage: ChatMessage
   messages: ChatMessage[]
@@ -137,6 +145,28 @@ async function routeRequest(
     return
   }
 
+  if (request.method === 'GET' && url.pathname === '/api/workspaces') {
+    await getWorkspaces(response, context)
+    return
+  }
+
+  const workspaceMarkdownMatch = /^\/api\/workspaces\/([^/]+)\/markdown$/.exec(url.pathname)
+  if (request.method === 'GET' && workspaceMarkdownMatch !== null) {
+    const workspaceId = decodeRouteWorkspaceId(response, workspaceMarkdownMatch[1])
+    if (workspaceId === undefined) return
+    await getWorkspaceMarkdown(response, context, workspaceId)
+    return
+  }
+
+  const workspaceMarkdownFileMatch = /^\/api\/workspaces\/([^/]+)\/markdown\/([^/]+)$/.exec(url.pathname)
+  if (request.method === 'GET' && workspaceMarkdownFileMatch !== null) {
+    const workspaceId = decodeRouteWorkspaceId(response, workspaceMarkdownFileMatch[1])
+    const fileId = decodeRouteComponent(response, workspaceMarkdownFileMatch[2], 'Markdown file id')
+    if (workspaceId === undefined || fileId === undefined) return
+    await getWorkspaceMarkdownFile(response, context, workspaceId, fileId)
+    return
+  }
+
   if (request.method === 'GET' && url.pathname === '/api/sessions') {
     await getSessions(response, context)
     return
@@ -182,6 +212,14 @@ async function createRun(
     return
   }
 
+  let workspace: WorkspaceInfo
+  try {
+    workspace = await resolveWorkspace(context.cwd, parsed.workspaceId)
+  } catch (error) {
+    writeJson(response, 400, { error: error instanceof Error ? error.message : String(error) })
+    return
+  }
+
   let session: SessionIndexItem
   let messages: ChatMessage[]
   try {
@@ -222,6 +260,7 @@ async function createRun(
   const record: RunRecord = {
     id: randomUUID(),
     cwd: context.cwd,
+    workspace,
     sessionId: session.id,
     userMessage,
     messages,
@@ -233,7 +272,7 @@ async function createRun(
   writeJson(response, 202, { runId: record.id, sessionId: record.sessionId })
 
   const runPromise = Promise.resolve()
-    .then(() => runWebAgent(record, context.runtime, context.callModel, context.compactDailyIfNeeded))
+    .then(() => runWebAgent(record, context.callModel, context.compactDailyIfNeeded))
     .finally(() => {
       context.activeRuns.delete(runPromise)
     })
@@ -242,11 +281,11 @@ async function createRun(
 
 async function runWebAgent(
   record: RunRecord,
-  runtime: Awaited<ReturnType<typeof buildAgentRuntime>>,
   callModel?: (input: CallModelInput) => Promise<ModelResponse>,
   compactDailyIfNeeded?: (input: CompactDailyIfNeededInput) => Promise<void>
 ): Promise<void> {
   try {
+    const runtime = await buildAgentRuntime(record.workspace.absolutePath)
     const result = await runAgentLoop({
       config: runtime.config,
       tools: runtime.tools,
@@ -278,6 +317,41 @@ async function runWebAgent(
       }
     }).catch(() => {})
     emit(record, errorEvent(error))
+  }
+}
+
+async function getWorkspaces(response: ServerResponse, context: WebServerContext): Promise<void> {
+  try {
+    writeJson(response, 200, { workspaces: await listWorkspaces(context.cwd) })
+  } catch (error) {
+    writeJson(response, 400, { error: error instanceof Error ? error.message : String(error) })
+  }
+}
+
+async function getWorkspaceMarkdown(
+  response: ServerResponse,
+  context: WebServerContext,
+  workspaceId: string
+): Promise<void> {
+  try {
+    const workspace = await resolveWorkspace(context.cwd, workspaceId)
+    writeJson(response, 200, { files: await listMarkdownFiles(workspace) })
+  } catch (error) {
+    writeJson(response, 400, { error: error instanceof Error ? error.message : String(error) })
+  }
+}
+
+async function getWorkspaceMarkdownFile(
+  response: ServerResponse,
+  context: WebServerContext,
+  workspaceId: string,
+  fileId: string
+): Promise<void> {
+  try {
+    const workspace = await resolveWorkspace(context.cwd, workspaceId)
+    writeJson(response, 200, { file: await readMarkdownFile(workspace, fileId) })
+  } catch (error) {
+    writeJson(response, 400, { error: error instanceof Error ? error.message : String(error) })
   }
 }
 
@@ -365,12 +439,16 @@ function writeSseEvent(response: ServerResponse, event: WebRunEvent): void {
   response.write(`data: ${JSON.stringify(event)}\n\n`)
 }
 
-function parseRunRequest(body: unknown): { ok: true; message: ChatMessage; sessionId?: string } | { ok: false; error: string } {
+function parseRunRequest(body: unknown): { ok: true; message: ChatMessage; sessionId?: string; workspaceId?: string } | { ok: false; error: string } {
   if (!isObject(body)) {
     return { ok: false, error: 'At least one user message is required.' }
   }
 
   const sessionId = typeof body.sessionId === 'string' && body.sessionId.trim().length > 0 ? body.sessionId : undefined
+  if (Object.prototype.hasOwnProperty.call(body, 'workspaceId') && typeof body.workspaceId !== 'string') {
+    return { ok: false, error: 'workspaceId must be a string.' }
+  }
+  const workspaceId = typeof body.workspaceId === 'string' ? body.workspaceId : undefined
 
   if (Object.prototype.hasOwnProperty.call(body, 'messages')) {
     if (!Array.isArray(body.messages)) {
@@ -400,17 +478,39 @@ function parseRunRequest(body: unknown): { ok: true; message: ChatMessage; sessi
     }
 
     if (typeof body.message === 'string') {
-      return { ok: true, message: { role: 'user', content: body.message }, sessionId }
+      return { ok: true, message: { role: 'user', content: body.message }, sessionId, workspaceId }
     }
 
-    return { ok: true, message: { role, content: message.content }, sessionId }
+    return { ok: true, message: { role, content: message.content }, sessionId, workspaceId }
   }
 
   if (typeof body.message === 'string') {
-    return { ok: true, message: { role: 'user', content: body.message }, sessionId }
+    return { ok: true, message: { role: 'user', content: body.message }, sessionId, workspaceId }
   }
 
   return { ok: false, error: 'At least one user message is required.' }
+}
+
+function decodeRouteWorkspaceId(response: ServerResponse, value: string): string | undefined {
+  try {
+    return decodeWorkspaceId(value)
+  } catch {
+    writeJson(response, 400, { error: `Invalid workspace id: ${value}` })
+    return undefined
+  }
+}
+
+function decodeRouteComponent(response: ServerResponse, value: string, label: string): string | undefined {
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    writeJson(response, 400, { error: `Invalid ${label}: ${value}` })
+    return undefined
+  }
+}
+
+function decodeWorkspaceId(value: string): string {
+  return value === '@root' ? '' : decodeURIComponent(value)
 }
 
 async function serveStaticFile(response: ServerResponse, relativePath: string): Promise<void> {

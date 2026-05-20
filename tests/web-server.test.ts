@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -133,6 +133,108 @@ describe('startWebServer', () => {
     expect((await cartoonResponse.arrayBuffer()).byteLength).toBeGreaterThan(1024)
   })
 
+  it('lists the workspace root and direct child workspaces', async () => {
+    const cwd = await createTempCwd()
+    await mkdir(join(cwd, 'workspace', 'project-b'))
+    await mkdir(join(cwd, 'workspace', 'project-a'))
+    await writeFile(join(cwd, 'workspace', 'README.md'), '# Root\n')
+    const server = await startWebServer({
+      cwd,
+      host: '127.0.0.1',
+      port: 0,
+      callModel: async (): Promise<ModelResponse> => ({ content: 'unused', toolCalls: [] })
+    })
+    servers.push(server)
+
+    const response = await fetch(`${server.url}/api/workspaces`)
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      workspaces: [
+        { id: '', label: 'workspace', relativePath: 'workspace' },
+        { id: 'project-a', label: 'workspace/project-a', relativePath: 'workspace/project-a' },
+        { id: 'project-b', label: 'workspace/project-b', relativePath: 'workspace/project-b' }
+      ]
+    })
+  })
+
+  it('returns 400 for GET /api/workspaces when workspace is missing', async () => {
+    const cwd = await createTempCwdWithoutWorkspace()
+    const server = await startWebServer({
+      cwd,
+      host: '127.0.0.1',
+      port: 0,
+      callModel: async (): Promise<ModelResponse> => ({ content: 'unused', toolCalls: [] })
+    })
+    servers.push(server)
+
+    const response = await fetch(`${server.url}/api/workspaces`)
+    const body = (await response.json()) as { error: string }
+
+    expect(response.status).toBe(400)
+    expect(body.error).toContain('workspace directory does not exist')
+  })
+
+  it('lists and reads Markdown for a selected child workspace', async () => {
+    const cwd = await createTempCwd()
+    await mkdir(join(cwd, 'workspace', 'project-a'))
+    await writeFile(join(cwd, 'workspace', 'project-a', 'README.md'), '# Project A\n')
+    await writeFile(join(cwd, 'workspace', 'project-a', 'notes.txt'), 'ignore me\n')
+    const server = await startWebServer({
+      cwd,
+      host: '127.0.0.1',
+      port: 0,
+      callModel: async (): Promise<ModelResponse> => ({ content: 'unused', toolCalls: [] })
+    })
+    servers.push(server)
+
+    const listResponse = await fetch(`${server.url}/api/workspaces/project-a/markdown`)
+    const readResponse = await fetch(`${server.url}/api/workspaces/project-a/markdown/README.md`)
+
+    expect(listResponse.status).toBe(200)
+    expect(await listResponse.json()).toEqual({ files: [{ id: 'README.md', label: 'README.md' }] })
+    expect(readResponse.status).toBe(200)
+    expect(await readResponse.json()).toEqual({ file: { id: 'README.md', content: '# Project A\n' } })
+  })
+
+  it('lists and reads Markdown for the @root workspace', async () => {
+    const cwd = await createTempCwd()
+    await writeFile(join(cwd, 'workspace', 'README.md'), '# Workspace Root\n')
+    const server = await startWebServer({
+      cwd,
+      host: '127.0.0.1',
+      port: 0,
+      callModel: async (): Promise<ModelResponse> => ({ content: 'unused', toolCalls: [] })
+    })
+    servers.push(server)
+
+    const listResponse = await fetch(`${server.url}/api/workspaces/@root/markdown`)
+    const readResponse = await fetch(`${server.url}/api/workspaces/@root/markdown/README.md`)
+
+    expect(listResponse.status).toBe(200)
+    expect(await listResponse.json()).toEqual({ files: [{ id: 'README.md', label: 'README.md' }] })
+    expect(readResponse.status).toBe(200)
+    expect(await readResponse.json()).toEqual({ file: { id: 'README.md', content: '# Workspace Root\n' } })
+  })
+
+  it('rejects Markdown path traversal', async () => {
+    const cwd = await createTempCwd()
+    await writeFile(join(cwd, 'README.md'), '# Repo Root\n')
+    const server = await startWebServer({
+      cwd,
+      host: '127.0.0.1',
+      port: 0,
+      callModel: async (): Promise<ModelResponse> => ({ content: 'unused', toolCalls: [] })
+    })
+    servers.push(server)
+
+    const response = await fetch(`${server.url}/api/workspaces/@root/markdown/..%2FREADME.md`)
+    const body = (await response.json()) as { error: string }
+
+    expect(response.status).toBe(400)
+    expect(body.error).toContain('Invalid Markdown file id')
+  })
+
   it('serves refined Web UI interaction code from GET /static/app.js', async () => {
     const server = await startServer()
 
@@ -235,8 +337,8 @@ describe('startWebServer', () => {
 
     expect(compactDailyIfNeeded).toHaveBeenCalledTimes(1)
     expect(compactDailyIfNeeded).toHaveBeenCalledWith({
-      cwd,
-      config: expect.objectContaining({ cwd }),
+      cwd: join(cwd, 'workspace'),
+      config: expect.objectContaining({ cwd: join(cwd, 'workspace') }),
       callModel
     })
   })
@@ -289,7 +391,7 @@ describe('startWebServer', () => {
 
   it('streams tool events before the final response', async () => {
     const cwd = await createTempCwd()
-    await writeFile(join(cwd, 'package.json'), '{"name":"web-prism-console-test"}\n')
+    await writeFile(join(cwd, 'workspace', 'package.json'), '{"name":"web-prism-console-test"}\n')
     const callModel = vi.fn(async (): Promise<ModelResponse> => {
       if (callModel.mock.calls.length === 1) {
         return {
@@ -332,6 +434,72 @@ describe('startWebServer', () => {
     expect(streamBody.indexOf('"type":"tool_start"')).toBeLessThan(streamBody.indexOf('"type":"tool_result"'))
     expect(streamBody.indexOf('"type":"tool_result"')).toBeLessThan(streamBody.indexOf('"type":"final"'))
     expect(callModel).toHaveBeenCalledTimes(2)
+  })
+
+  it('uses the selected workspace as the Web agent tool cwd', async () => {
+    const cwd = await createTempCwd()
+    await mkdir(join(cwd, 'workspace', 'project-a'))
+    await writeFile(join(cwd, 'workspace', 'project-a', 'README.md'), '# Project A\n')
+    const modelMessages: CallModelInput['messages'][] = []
+    const callModel = vi.fn(async (input: CallModelInput): Promise<ModelResponse> => {
+      modelMessages.push(input.messages.map((message) => ({ ...message })))
+      if (callModel.mock.calls.length === 1) {
+        return {
+          content: '',
+          toolCalls: [{
+            id: 'call-read-readme',
+            type: 'function',
+            function: {
+              name: 'file_read',
+              arguments: JSON.stringify({ file_path: 'README.md' })
+            }
+          }]
+        }
+      }
+
+      return { content: 'read project readme', toolCalls: [] }
+    })
+    const server = await startWebServer({
+      cwd,
+      host: '127.0.0.1',
+      port: 0,
+      callModel
+    })
+    servers.push(server)
+
+    const createResponse = await fetch(`${server.url}/api/runs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ message: 'read README', workspaceId: 'project-a' })
+    })
+    expect(createResponse.status).toBe(202)
+    const createBody = (await createResponse.json()) as { runId: string }
+
+    await readRunEventStream(`${server.url}/api/runs/${createBody.runId}/events`)
+
+    expect(callModel).toHaveBeenCalledTimes(2)
+    expect(modelMessages[1]).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        role: 'tool',
+        content: expect.stringContaining('# Project A')
+      })
+    ]))
+  })
+
+  it('rejects invalid run workspace ids without calling the model', async () => {
+    const callModel = vi.fn(async (): Promise<ModelResponse> => ({ content: 'unused', toolCalls: [] }))
+    const server = await startServer(callModel)
+
+    const response = await fetch(`${server.url}/api/runs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ message: 'hello web', workspaceId: '..' })
+    })
+    const body = (await response.json()) as { error: string }
+
+    expect(response.status).toBe(400)
+    expect(body.error).toContain('Invalid workspace id')
+    expect(callModel).not.toHaveBeenCalled()
   })
 
   it('streams concise error events when run fails', async () => {
@@ -603,7 +771,14 @@ async function startServer(
 }
 
 async function createTempCwd(): Promise<string> {
-  const cwd = await mkdtemp(join(tmpdir(), 'cc-local-web-server-'))
+  const cwd = await realpath(await mkdtemp(join(tmpdir(), 'cc-local-web-server-')))
+  await mkdir(join(cwd, 'workspace'))
+  tempDirs.push(cwd)
+  return cwd
+}
+
+async function createTempCwdWithoutWorkspace(): Promise<string> {
+  const cwd = await realpath(await mkdtemp(join(tmpdir(), 'cc-local-web-server-')))
   tempDirs.push(cwd)
   return cwd
 }
