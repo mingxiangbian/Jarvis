@@ -20,6 +20,11 @@ export interface DailySummaryResponse {
   summary: string
 }
 
+const explicitMemorySignalPatterns = [
+  /\b(remember|prefer|preference)\b/i,
+  /记住|偏好/
+]
+
 const durableSignalPatterns = [
   /remember|prefer|preference|default|rule|constraint|decision|decide|design|architecture|root cause|follow[- ]?up|next step|workflow|memory|context|agent behavior|configuration/i,
   /记住|偏好|默认|规则|约束|决定|设计|架构|根因|原因|待办|下一步|记忆|上下文|工具调用|文件修改|工作流/
@@ -49,6 +54,10 @@ const genericSummaries = new Set([
 
 export function hasDailyMemorySignal(userPrompt: string, finalText: string): boolean {
   const combined = `${userPrompt}\n${finalText}`.trim()
+  if (explicitMemorySignalPatterns.some((pattern) => pattern.test(combined))) {
+    return true
+  }
+
   if (combined.length < 40) {
     return false
   }

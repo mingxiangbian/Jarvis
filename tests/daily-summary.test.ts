@@ -117,7 +117,8 @@ describe('daily summary filtering', () => {
 
   it('uses hard signals before asking the model', () => {
     expect(hasDailyMemorySignal('hello', 'ok')).toBe(false)
-    expect(hasDailyMemorySignal('Remember this preference.', 'ok')).toBe(false)
+    expect(hasDailyMemorySignal('Remember this preference.', 'ok')).toBe(true)
+    expect(hasDailyMemorySignal('记住：默认跳过工具日志', '好的')).toBe(true)
     expect(hasDailyMemorySignal('我希望以后默认跳过工具调用日志，并且只保存有长期价值的内容记忆。', '确认这个偏好。')).toBe(true)
     expect(hasDailyMemorySignal('What was the root cause?', 'Root cause: daily logging appends every tool call.')).toBe(true)
     expect(hasDailyMemorySignal('继续', 'Done.')).toBe(false)
