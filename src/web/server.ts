@@ -6,6 +6,10 @@ import { dirname, extname, join, normalize, resolve, sep } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { runAgentLoop } from '../agent-loop.js'
+import {
+  compactDailyIfNeeded as defaultCompactDailyIfNeeded,
+  type CompactDailyIfNeededInput
+} from '../daily-compaction.js'
 import type { CallModelInput, ChatMessage, ChatRole, ModelResponse } from '../llm-client.js'
 import { buildAgentRuntime } from './prompt-context.js'
 import { createWebObserver, errorEvent, type WebRunEvent } from './web-observer.js'
@@ -15,6 +19,7 @@ export interface StartWebServerInput {
   host: string
   port: number
   callModel?: (input: CallModelInput) => Promise<ModelResponse>
+  compactDailyIfNeeded?: (input: CompactDailyIfNeededInput) => Promise<void>
 }
 
 export interface WebServerHandle {
@@ -39,6 +44,7 @@ interface SessionRecord {
 
 interface WebServerContext {
   callModel?: (input: CallModelInput) => Promise<ModelResponse>
+  compactDailyIfNeeded?: (input: CompactDailyIfNeededInput) => Promise<void>
   runs: Map<string, RunRecord>
   sessions: Map<string, SessionRecord>
   activeRuns: Set<Promise<void>>
@@ -58,6 +64,7 @@ export async function startWebServer(input: StartWebServerInput): Promise<WebSer
     void routeRequest(request, response, {
       activeRuns,
       callModel: input.callModel,
+      compactDailyIfNeeded: input.compactDailyIfNeeded,
       runs,
       sessions,
       runtime
@@ -171,7 +178,7 @@ async function createRun(
   writeJson(response, 202, { runId: record.id, sessionId: session.id })
 
   const runPromise = Promise.resolve()
-    .then(() => runWebAgent(record, context.runtime, context.callModel))
+    .then(() => runWebAgent(record, context.runtime, context.callModel, context.compactDailyIfNeeded))
     .finally(() => {
       context.activeRuns.delete(runPromise)
     })
@@ -181,7 +188,8 @@ async function createRun(
 async function runWebAgent(
   record: RunRecord,
   runtime: Awaited<ReturnType<typeof buildAgentRuntime>>,
-  callModel?: (input: CallModelInput) => Promise<ModelResponse>
+  callModel?: (input: CallModelInput) => Promise<ModelResponse>,
+  compactDailyIfNeeded?: (input: CompactDailyIfNeededInput) => Promise<void>
 ): Promise<void> {
   try {
     const result = await runAgentLoop({
@@ -192,6 +200,15 @@ async function runWebAgent(
       callModel
     })
     record.session.messages.push(record.userMessage, { role: 'assistant', content: result.finalText })
+    try {
+      await (compactDailyIfNeeded ?? defaultCompactDailyIfNeeded)({
+        cwd: runtime.config.cwd,
+        config: runtime.config,
+        callModel
+      })
+    } catch {
+      // Daily compaction is best effort and must not change Web run results.
+    }
   } catch (error) {
     emit(record, errorEvent(error))
   }

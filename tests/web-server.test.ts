@@ -2,6 +2,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { CompactDailyIfNeededInput } from '../src/daily-compaction.js'
 import type { CallModelInput, ModelResponse } from '../src/llm-client.js'
 import { startWebServer, type WebServerHandle } from '../src/web/server.js'
 
@@ -205,6 +206,85 @@ describe('startWebServer', () => {
     expect(callModel).toHaveBeenCalledWith(expect.objectContaining({
       messages: expect.arrayContaining([{ role: 'user', content: 'hello web' }])
     } satisfies Partial<CallModelInput>))
+  })
+
+  it('delegates daily compaction after successful runs', async () => {
+    const cwd = await createTempCwd()
+    const callModel = vi.fn(async (_input: CallModelInput): Promise<ModelResponse> => ({ content: 'web answer', toolCalls: [] }))
+    const compactDailyIfNeeded = vi.fn(async (_input: CompactDailyIfNeededInput) => {})
+    const server = await startWebServer({
+      cwd,
+      host: '127.0.0.1',
+      port: 0,
+      callModel,
+      compactDailyIfNeeded
+    })
+    servers.push(server)
+
+    const createResponse = await fetch(`${server.url}/api/runs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ message: 'hello web' })
+    })
+    expect(createResponse.status).toBe(202)
+    const createBody = (await createResponse.json()) as { runId: string }
+
+    await readRunEventStream(`${server.url}/api/runs/${createBody.runId}/events`)
+    await server.close()
+    servers.pop()
+
+    expect(compactDailyIfNeeded).toHaveBeenCalledTimes(1)
+    expect(compactDailyIfNeeded).toHaveBeenCalledWith({
+      cwd,
+      config: expect.objectContaining({ cwd }),
+      callModel
+    })
+  })
+
+  it('does not delegate daily compaction after failed runs', async () => {
+    const compactDailyIfNeeded = vi.fn(async (_input: CompactDailyIfNeededInput) => {})
+    const callModel = vi.fn(async (): Promise<ModelResponse> => {
+      throw new Error('model unavailable')
+    })
+    const server = await startServer(callModel, compactDailyIfNeeded)
+
+    const createResponse = await fetch(`${server.url}/api/runs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ message: 'hello web' })
+    })
+    expect(createResponse.status).toBe(202)
+    const createBody = (await createResponse.json()) as { runId: string }
+
+    await readRunEventStream(`${server.url}/api/runs/${createBody.runId}/events`)
+
+    expect(compactDailyIfNeeded).not.toHaveBeenCalled()
+  })
+
+  it('does not emit an error event when injected daily compaction fails', async () => {
+    const compactDailyIfNeeded = vi.fn(async (_input: CompactDailyIfNeededInput) => {
+      throw new Error('compaction failed')
+    })
+    const callModel = vi.fn(async (_input: CallModelInput): Promise<ModelResponse> => ({ content: 'web answer', toolCalls: [] }))
+    const server = await startServer(callModel, compactDailyIfNeeded)
+
+    const createResponse = await fetch(`${server.url}/api/runs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ message: 'hello web' })
+    })
+    expect(createResponse.status).toBe(202)
+    const createBody = (await createResponse.json()) as { runId: string }
+
+    await readRunEventStream(`${server.url}/api/runs/${createBody.runId}/events`)
+    await waitUntil(() => compactDailyIfNeeded.mock.calls.length > 0)
+
+    const { body: replayBody } = await readRunEventStream(`${server.url}/api/runs/${createBody.runId}/events`)
+
+    expect(compactDailyIfNeeded).toHaveBeenCalledTimes(1)
+    expect(replayBody).toContain('"type":"final","text":"web answer"')
+    expect(replayBody).not.toContain('"type":"error"')
+    expect(replayBody).not.toContain('compaction failed')
   })
 
   it('streams tool events before the final response', async () => {
@@ -430,13 +510,17 @@ describe('startWebServer', () => {
   })
 })
 
-async function startServer(callModel?: (input: CallModelInput) => Promise<ModelResponse>): Promise<WebServerHandle> {
+async function startServer(
+  callModel?: (input: CallModelInput) => Promise<ModelResponse>,
+  compactDailyIfNeeded?: (input: CompactDailyIfNeededInput) => Promise<void>
+): Promise<WebServerHandle> {
   const cwd = await createTempCwd()
   const server = await startWebServer({
     cwd,
     host: '127.0.0.1',
     port: 0,
-    callModel: callModel ?? (async (): Promise<ModelResponse> => ({ content: 'unused', toolCalls: [] }))
+    callModel: callModel ?? (async (): Promise<ModelResponse> => ({ content: 'unused', toolCalls: [] })),
+    compactDailyIfNeeded
   })
   servers.push(server)
   return server
@@ -472,4 +556,14 @@ async function readRunEventStream(url: string): Promise<{ response: Response; bo
   body += decoder.decode()
 
   return { response, body }
+}
+
+async function waitUntil(condition: () => boolean): Promise<void> {
+  const startedAt = Date.now()
+  while (!condition()) {
+    if (Date.now() - startedAt > 1_000) {
+      throw new Error('Timed out waiting for condition.')
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5))
+  }
 }
