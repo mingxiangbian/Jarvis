@@ -1,9 +1,7 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import { createDefaultConfig } from '../src/config.js'
+import type { CompactDailyIfNeededInput } from '../src/daily-compaction.js'
 import type { CallModelInput, ChatMessage, ModelResponse } from '../src/llm-client.js'
 import { runRepl, runReplTurn } from '../src/repl.js'
 import type { Tool } from '../src/tools/types.js'
@@ -62,14 +60,6 @@ function createTestReadline(lines: string[]) {
       return line
     })
   }
-}
-
-const tempDirs: string[] = []
-
-async function createTempDir(): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), 'cc-local-repl-'))
-  tempDirs.push(dir)
-  return dir
 }
 
 describe('runReplTurn', () => {
@@ -267,18 +257,10 @@ describe('runReplTurn', () => {
 })
 
 describe('runRepl', () => {
-  afterEach(async () => {
-    await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })))
-  })
-
-  it('compacts daily memory after graceful exit when the threshold is reached', async () => {
-    const root = await createTempDir()
-    const memoryDir = join(root, '.cc-local', 'memory')
-    await mkdir(memoryDir, { recursive: true })
-    await writeFile(join(memoryDir, 'daily.md'), 'one\ntwo\n')
-    const config = { ...createDefaultConfig(root), dailyCompactThreshold: 2 }
+  it('delegates daily compaction after graceful exit', async () => {
+    const config = createDefaultConfig('/tmp/project')
     const readline = createTestReadline(['exit'])
-    const compactMemories = vi.fn(async (_input) => ({ ok: true as const, promoted: 1 }))
+    const compactDailyIfNeeded = vi.fn(async (_input: CompactDailyIfNeededInput) => {})
     const callModel = vi.fn(async (_input: CallModelInput): Promise<ModelResponse> => ({ content: 'unused', toolCalls: [] }))
     const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => {})
 
@@ -289,7 +271,7 @@ describe('runRepl', () => {
         tools: [],
         callModel,
         readline,
-        compactMemories
+        compactDailyIfNeeded
       })
       expect(consoleLog).toHaveBeenCalledWith(expect.stringContaining('Prism Agent'))
       expect(consoleLog).toHaveBeenCalledWith(expect.stringContaining(config.model.model))
@@ -299,9 +281,8 @@ describe('runRepl', () => {
 
     expect(readline.close).toHaveBeenCalledTimes(1)
     expect(callModel).not.toHaveBeenCalled()
-    expect(compactMemories).toHaveBeenCalledWith({
-      cwd: root,
-      dailyContent: 'one\ntwo\n',
+    expect(compactDailyIfNeeded).toHaveBeenCalledWith({
+      cwd: config.cwd,
       config,
       callModel
     })
@@ -310,7 +291,7 @@ describe('runRepl', () => {
   it('prints the Prism mascot welcome before reading REPL input', async () => {
     const config = createDefaultConfig('/tmp/project')
     const readline = createTestReadline(['exit'])
-    const compactMemories = vi.fn(async (_input) => ({ ok: true as const, promoted: 0 }))
+    const compactDailyIfNeeded = vi.fn(async (_input: CompactDailyIfNeededInput) => {})
     const callModel = vi.fn(
       async (_input: CallModelInput): Promise<ModelResponse> => ({ content: 'unused', toolCalls: [] })
     )
@@ -323,7 +304,7 @@ describe('runRepl', () => {
         tools: [],
         callModel,
         readline,
-        compactMemories
+        compactDailyIfNeeded
       })
       expect(consoleLog).toHaveBeenCalledWith(expect.stringContaining('Prism Agent'))
       expect(consoleLog).toHaveBeenCalledWith(expect.stringContaining(config.model.model))
@@ -335,7 +316,7 @@ describe('runRepl', () => {
   it('prints REPL tool-count metadata to stderr', async () => {
     const config = createDefaultConfig('/tmp/project')
     const readline = createTestReadline(['read file', 'exit'])
-    const compactMemories = vi.fn(async (_input) => ({ ok: true as const, promoted: 0 }))
+    const compactDailyIfNeeded = vi.fn(async (_input: CompactDailyIfNeededInput) => {})
     let callCount = 0
     const callModel = vi.fn(async (_input: CallModelInput): Promise<ModelResponse> => {
       callCount += 1
@@ -364,7 +345,7 @@ describe('runRepl', () => {
         tools: [trackReadTool],
         callModel,
         readline,
-        compactMemories
+        compactDailyIfNeeded
       })
       expect(consoleLog).toHaveBeenCalledWith(expect.stringContaining('read done'))
       expect(consoleLog.mock.calls.flat()).not.toContainEqual(expect.stringContaining('tool calls:'))
@@ -375,37 +356,9 @@ describe('runRepl', () => {
     }
   })
 
-  it('skips daily compaction when the threshold is not reached', async () => {
-    const root = await createTempDir()
-    const memoryDir = join(root, '.cc-local', 'memory')
-    await mkdir(memoryDir, { recursive: true })
-    await writeFile(join(memoryDir, 'daily.md'), 'one\n')
-    const config = { ...createDefaultConfig(root), dailyCompactThreshold: 2 }
-    const readline = createTestReadline(['exit'])
-    const compactMemories = vi.fn(async (_input) => ({ ok: true as const, promoted: 1 }))
-    const callModel = vi.fn(async (_input: CallModelInput): Promise<ModelResponse> => ({ content: 'unused', toolCalls: [] }))
-    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => {})
-
-    try {
-      await runRepl({
-        config,
-        systemPrompt: 'system rules',
-        tools: [],
-        callModel,
-        readline,
-        compactMemories
-      })
-    } finally {
-      consoleLog.mockRestore()
-    }
-
-    expect(compactMemories).not.toHaveBeenCalled()
-    await expect(readFile(join(memoryDir, 'daily.md'), 'utf8')).resolves.toBe('one\n')
-  })
-
-  it('does not compact daily memory when a turn fails before graceful exit', async () => {
+  it('does not delegate daily compaction when a turn fails before graceful exit', async () => {
     const readline = createTestReadline(['hello'])
-    const compactMemories = vi.fn(async (_input) => ({ ok: true as const, promoted: 1 }))
+    const compactDailyIfNeeded = vi.fn(async (_input: CompactDailyIfNeededInput) => {})
     const callModel = vi.fn(async (_input: CallModelInput): Promise<ModelResponse> => {
       throw new Error('model failed')
     })
@@ -419,7 +372,7 @@ describe('runRepl', () => {
           tools: [],
           callModel,
           readline,
-          compactMemories
+          compactDailyIfNeeded
         })
       ).rejects.toThrow('model failed')
     } finally {
@@ -428,34 +381,6 @@ describe('runRepl', () => {
 
     expect(readline.close).toHaveBeenCalledTimes(1)
     expect(callModel).toHaveBeenCalledTimes(1)
-    expect(compactMemories).not.toHaveBeenCalled()
-  })
-
-  it('does not block graceful exit when daily compaction fails', async () => {
-    const root = await createTempDir()
-    const memoryDir = join(root, '.cc-local', 'memory')
-    await mkdir(memoryDir, { recursive: true })
-    await writeFile(join(memoryDir, 'daily.md'), 'one\ntwo\n')
-    const config = { ...createDefaultConfig(root), dailyCompactThreshold: 2 }
-    const readline = createTestReadline(['exit'])
-    const compactMemories = vi.fn(async (_input) => ({ ok: false as const, error: 'bad json' }))
-    const callModel = vi.fn(async (_input: CallModelInput): Promise<ModelResponse> => ({ content: 'unused', toolCalls: [] }))
-    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => {})
-
-    try {
-      await runRepl({
-        config,
-        systemPrompt: 'system rules',
-        tools: [],
-        callModel,
-        readline,
-        compactMemories
-      })
-    } finally {
-      consoleLog.mockRestore()
-    }
-
-    expect(compactMemories).toHaveBeenCalledTimes(1)
-    await expect(readFile(join(memoryDir, 'daily.md'), 'utf8')).resolves.toBe('one\ntwo\n')
+    expect(compactDailyIfNeeded).not.toHaveBeenCalled()
   })
 })

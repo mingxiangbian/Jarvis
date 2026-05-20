@@ -3,13 +3,11 @@ import { createInterface } from 'node:readline/promises'
 import chalk from 'chalk'
 import { runAgentLoop } from './agent-loop.js'
 import type { AppConfig } from './config.js'
-import { callModel as defaultCallModel, type CallModelInput, type ChatMessage, type ModelResponse } from './llm-client.js'
 import {
-  compactMemories as defaultCompactMemories,
-  loadDailyRaw,
-  type CompactMemoriesInput,
-  type CompactMemoriesResult
-} from './memory.js'
+  compactDailyIfNeeded as defaultCompactDailyIfNeeded,
+  type CompactDailyIfNeededInput
+} from './daily-compaction.js'
+import { callModel as defaultCallModel, type CallModelInput, type ChatMessage, type ModelResponse } from './llm-client.js'
 import type { Tool, ToolContext } from './tools/types.js'
 import { createTerminalObserver, renderWelcome, type AgentObserver } from './ui-observer.js'
 
@@ -82,7 +80,7 @@ export async function runRepl(inputConfig: {
   tools: Tool<unknown>[]
   callModel?: (input: CallModelInput) => Promise<ModelResponse>
   readline?: ReplReadline
-  compactMemories?: (input: CompactMemoriesInput) => Promise<CompactMemoriesResult>
+  compactDailyIfNeeded?: (input: CompactDailyIfNeededInput) => Promise<void>
 }): Promise<void> {
   const messages: ChatMessage[] = [{ role: 'system', content: inputConfig.systemPrompt }]
   const toolContext: ToolContext = {
@@ -130,38 +128,12 @@ export async function runRepl(inputConfig: {
   }
 
   if (gracefulExit) {
-    await compactReplDaily(
-      inputConfig.config,
-      inputConfig.callModel ?? defaultCallModel,
-      inputConfig.compactMemories ?? defaultCompactMemories
-    )
-  }
-}
-
-async function compactReplDaily(
-  config: AppConfig,
-  callModel: (input: CallModelInput) => Promise<ModelResponse>,
-  compactMemories: (input: CompactMemoriesInput) => Promise<CompactMemoriesResult>
-): Promise<void> {
-  const dailyContent = await loadDailyRaw(config.cwd)
-  if (countNonEmptyLines(dailyContent) < config.dailyCompactThreshold) {
-    return
-  }
-
-  try {
-    await compactMemories({
-      cwd: config.cwd,
-      dailyContent,
-      config,
-      callModel
+    await (inputConfig.compactDailyIfNeeded ?? defaultCompactDailyIfNeeded)({
+      cwd: inputConfig.config.cwd,
+      config: inputConfig.config,
+      callModel: inputConfig.callModel ?? defaultCallModel
     })
-  } catch {
-    // Daily compaction should not prevent REPL exit.
   }
-}
-
-function countNonEmptyLines(content: string): number {
-  return content.split(/\r?\n/).filter((line) => line.trim() !== '').length
 }
 
 function isExitInput(input: string): boolean {
