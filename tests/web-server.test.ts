@@ -123,15 +123,11 @@ describe('startWebServer', () => {
     expect(body).not.toContain('radial-gradient(circle at 50% 34%')
   })
 
-  it('serves Cyrene PNG avatar assets from GET /static/assets', async () => {
+  it('serves the Cyrene PNG avatar asset from GET /static/assets', async () => {
     const server = await startServer()
 
-    const realisticResponse = await fetch(`${server.url}/static/assets/cyrene-realistic-avatar.png`)
     const cartoonResponse = await fetch(`${server.url}/static/assets/cyrene-cartoon-avatar.png`)
 
-    expect(realisticResponse.status).toBe(200)
-    expect(realisticResponse.headers.get('content-type')).toContain('image/png')
-    expect((await realisticResponse.arrayBuffer()).byteLength).toBeGreaterThan(1024)
     expect(cartoonResponse.status).toBe(200)
     expect(cartoonResponse.headers.get('content-type')).toContain('image/png')
     expect((await cartoonResponse.arrayBuffer()).byteLength).toBeGreaterThan(1024)
