@@ -86,6 +86,8 @@ describe('daily summary filtering', () => {
     expect(validateDailySummary('User asked a question.', config)).toBe(false)
     expect(validateDailySummary('glob -> ok', config)).toBe(false)
     expect(validateDailySummary('Edited src/agent-loop.ts.', config)).toBe(false)
+    expect(validateDailySummary('Modified src/daily-summary.ts to add memory validation.', config)).toBe(false)
+    expect(validateDailySummary('Updated src/agent-loop.ts for memory behavior.', config)).toBe(false)
     expect(
       validateDailySummary(
         'Decision: daily memory should skip ordinary tool calls and remember durable content summaries.',
@@ -109,7 +111,8 @@ describe('daily summary filtering', () => {
 
   it('uses hard signals before asking the model', () => {
     expect(hasDailyMemorySignal('hello', 'ok')).toBe(false)
-    expect(hasDailyMemorySignal('我希望以后默认跳过工具调用日志', '确认这个偏好。')).toBe(true)
+    expect(hasDailyMemorySignal('Remember this preference.', 'ok')).toBe(false)
+    expect(hasDailyMemorySignal('我希望以后默认跳过工具调用日志，并且只保存有长期价值的内容记忆。', '确认这个偏好。')).toBe(true)
     expect(hasDailyMemorySignal('What was the root cause?', 'Root cause: daily logging appends every tool call.')).toBe(true)
     expect(hasDailyMemorySignal('继续', 'Done.')).toBe(false)
   })
