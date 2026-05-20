@@ -152,8 +152,12 @@ export async function maybeAppendDailySummary(input: MaybeAppendDailySummaryInpu
     return false
   }
 
-  await (input.appendDaily ?? appendDaily)(input.cwd, [formatDailySummaryEntry(input.now ?? new Date(), parsed.summary)])
-  return true
+  try {
+    await (input.appendDaily ?? appendDaily)(input.cwd, [formatDailySummaryEntry(input.now ?? new Date(), parsed.summary)])
+    return true
+  } catch {
+    return false
+  }
 }
 
 function formatDailySummaryEntry(date: Date, summary: string): string {

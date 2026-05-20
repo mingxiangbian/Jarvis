@@ -75,6 +75,31 @@ describe('daily summary filtering', () => {
     )
   })
 
+  it('returns false when a valid daily summary cannot be appended', async () => {
+    const root = await createTempDir()
+    const callModel = vi.fn(async (_input: CallModelInput): Promise<ModelResponse> => ({
+      content: JSON.stringify({
+        shouldRemember: true,
+        summary: 'User prefers daily memory to store content summaries instead of tool-call logs.'
+      }),
+      toolCalls: []
+    }))
+
+    await expect(
+      maybeAppendDailySummary({
+        cwd: root,
+        config: createDefaultConfig(root),
+        userPrompt: 'Remember this preference.',
+        finalText: 'Use daily memory for durable content summaries.',
+        callModel,
+        appendDaily: async () => {
+          throw new Error('daily unavailable')
+        },
+        now: new Date('2026-05-20T06:30:00Z')
+      })
+    ).resolves.toBe(false)
+  })
+
   it('rejects invalid, generic, and operational summaries', async () => {
     const config = createDefaultConfig('/tmp/project')
 
