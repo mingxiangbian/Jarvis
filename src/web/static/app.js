@@ -1,3 +1,12 @@
+import {
+  buildRunRequestBody,
+  encodedWorkspaceId,
+  isWorkspaceLockedState,
+  ownsMarkdownFileResponse,
+  ownsMarkdownFilesResponse,
+  renderMarkdownHtml
+} from './app-helpers.js'
+
 const appShell = document.querySelector('.app-shell')
 const leftResizeHandle = document.querySelector('#leftResizeHandle')
 const messages = document.querySelector('#messages')
@@ -39,6 +48,11 @@ const state = {
   sidebarCollapsed: false,
   inspectorOpen: false,
   runStatus: 'Ready'
+}
+
+const markdownRequests = {
+  files: 0,
+  file: 0
 }
 
 void loadWorkspaces()
@@ -152,7 +166,11 @@ async function sendPrompt() {
     response = await fetch('/api/runs', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ sessionId: state.sessionId, message: content, workspaceId: state.workspaceId })
+      body: JSON.stringify(buildRunRequestBody({
+        sessionId: state.sessionId,
+        message: content,
+        workspaceId: state.workspaceId
+      }))
     })
   } catch (error) {
     finishWithError(error)
@@ -344,6 +362,9 @@ async function loadWorkspaces() {
 }
 
 async function loadMarkdownFiles() {
+  const requestWorkspaceId = state.workspaceId
+  const requestToken = ++markdownRequests.files
+  markdownRequests.file += 1
   state.markdownError = null
   state.markdownFiles = []
   state.selectedMarkdownId = ''
@@ -352,10 +373,26 @@ async function loadMarkdownFiles() {
 
   let response
   try {
-    response = await fetch(`/api/workspaces/${encodedWorkspaceId()}/markdown`)
+    response = await fetch(`/api/workspaces/${encodedWorkspaceId(requestWorkspaceId)}/markdown`)
   } catch {
+    if (!ownsMarkdownFilesResponse({
+      currentToken: markdownRequests.files,
+      responseToken: requestToken,
+      currentWorkspaceId: state.workspaceId,
+      responseWorkspaceId: requestWorkspaceId
+    })) {
+      return
+    }
     state.markdownError = 'Unable to load Markdown context.'
     renderInspector()
+    return
+  }
+  if (!ownsMarkdownFilesResponse({
+    currentToken: markdownRequests.files,
+    responseToken: requestToken,
+    currentWorkspaceId: state.workspaceId,
+    responseWorkspaceId: requestWorkspaceId
+  })) {
     return
   }
   if (!response.ok) {
@@ -364,6 +401,14 @@ async function loadMarkdownFiles() {
     return
   }
   const body = await response.json()
+  if (!ownsMarkdownFilesResponse({
+    currentToken: markdownRequests.files,
+    responseToken: requestToken,
+    currentWorkspaceId: state.workspaceId,
+    responseWorkspaceId: requestWorkspaceId
+  })) {
+    return
+  }
   state.markdownFiles = Array.isArray(body.files) ? body.files : []
   state.selectedMarkdownId = state.markdownFiles[0]?.id || ''
   if (state.selectedMarkdownId) {
@@ -374,16 +419,39 @@ async function loadMarkdownFiles() {
 }
 
 async function loadMarkdownFile(fileId) {
+  const requestWorkspaceId = state.workspaceId
+  const requestFileId = fileId
+  const requestToken = ++markdownRequests.file
   state.markdownError = null
   state.selectedMarkdownId = fileId
   state.selectedMarkdownContent = ''
 
   let response
   try {
-    response = await fetch(`/api/workspaces/${encodedWorkspaceId()}/markdown/${encodeURIComponent(fileId)}`)
+    response = await fetch(`/api/workspaces/${encodedWorkspaceId(requestWorkspaceId)}/markdown/${encodeURIComponent(requestFileId)}`)
   } catch {
+    if (!ownsMarkdownFileResponse({
+      currentToken: markdownRequests.file,
+      responseToken: requestToken,
+      currentWorkspaceId: state.workspaceId,
+      responseWorkspaceId: requestWorkspaceId,
+      currentFileId: state.selectedMarkdownId,
+      responseFileId: requestFileId
+    })) {
+      return
+    }
     state.markdownError = 'Unable to load Markdown context.'
     renderInspector()
+    return
+  }
+  if (!ownsMarkdownFileResponse({
+    currentToken: markdownRequests.file,
+    responseToken: requestToken,
+    currentWorkspaceId: state.workspaceId,
+    responseWorkspaceId: requestWorkspaceId,
+    currentFileId: state.selectedMarkdownId,
+    responseFileId: requestFileId
+  })) {
     return
   }
   if (!response.ok) {
@@ -392,16 +460,22 @@ async function loadMarkdownFile(fileId) {
     return
   }
   const body = await response.json()
+  if (!ownsMarkdownFileResponse({
+    currentToken: markdownRequests.file,
+    responseToken: requestToken,
+    currentWorkspaceId: state.workspaceId,
+    responseWorkspaceId: requestWorkspaceId,
+    currentFileId: state.selectedMarkdownId,
+    responseFileId: requestFileId
+  })) {
+    return
+  }
   state.selectedMarkdownContent = typeof body.file?.content === 'string' ? body.file.content : ''
   renderInspector()
 }
 
-function encodedWorkspaceId() {
-  return state.workspaceId === '' ? '@root' : encodeURIComponent(state.workspaceId)
-}
-
 function isWorkspaceLocked() {
-  return state.isSending || state.activeRun !== null
+  return isWorkspaceLockedState(state)
 }
 
 async function loadSession(sessionId) {
@@ -488,6 +562,7 @@ function renderWorkspacePanel() {
       }
       state.workspaceId = workspace.id
       state.selectedMarkdownContent = ''
+      markdownRequests.file += 1
       workspacePicker.hidden = true
       workspaceChangeButton?.setAttribute('aria-expanded', 'false')
       renderWorkspacePanel()
@@ -612,102 +687,7 @@ function renderContextPanel() {
 function renderMarkdownPreview(markdown) {
   const preview = document.createElement('div')
   preview.className = 'markdown-preview'
-  const lines = String(markdown || '').split(/\r?\n/)
-  let paragraph = []
-  let list = null
-  let codeLines = []
-  let inCode = false
-
-  const flushParagraph = () => {
-    if (paragraph.length === 0) {
-      return
-    }
-    const node = document.createElement('p')
-    node.innerHTML = escapeHtml(paragraph.join(' '))
-    preview.append(node)
-    paragraph = []
-  }
-  const flushList = () => {
-    if (!list) {
-      return
-    }
-    preview.append(list)
-    list = null
-  }
-  const flushCode = () => {
-    const pre = document.createElement('pre')
-    const code = document.createElement('code')
-    code.innerHTML = escapeHtml(codeLines.join('\n'))
-    pre.append(code)
-    preview.append(pre)
-    codeLines = []
-  }
-
-  for (const line of lines) {
-    if (line.startsWith('```')) {
-      if (inCode) {
-        flushCode()
-        inCode = false
-      } else {
-        flushParagraph()
-        flushList()
-        inCode = true
-        codeLines = []
-      }
-      continue
-    }
-    if (inCode) {
-      codeLines.push(line)
-      continue
-    }
-    if (line.trim() === '') {
-      flushParagraph()
-      flushList()
-      continue
-    }
-    if (line.startsWith('### ')) {
-      flushParagraph()
-      flushList()
-      const heading = document.createElement('h3')
-      heading.innerHTML = escapeHtml(line.slice(4))
-      preview.append(heading)
-      continue
-    }
-    if (line.startsWith('## ')) {
-      flushParagraph()
-      flushList()
-      const heading = document.createElement('h2')
-      heading.innerHTML = escapeHtml(line.slice(3))
-      preview.append(heading)
-      continue
-    }
-    if (line.startsWith('# ')) {
-      flushParagraph()
-      flushList()
-      const heading = document.createElement('h1')
-      heading.innerHTML = escapeHtml(line.slice(2))
-      preview.append(heading)
-      continue
-    }
-    if (line.startsWith('- ')) {
-      flushParagraph()
-      if (!list) {
-        list = document.createElement('ul')
-      }
-      const item = document.createElement('li')
-      item.innerHTML = escapeHtml(line.slice(2))
-      list.append(item)
-      continue
-    }
-    flushList()
-    paragraph.push(line.trim())
-  }
-
-  if (inCode) {
-    flushCode()
-  }
-  flushParagraph()
-  flushList()
+  preview.innerHTML = renderMarkdownHtml(markdown)
   return preview
 }
 
@@ -787,13 +767,4 @@ function formatSessionTime(value) {
 
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max)
-}
-
-function escapeHtml(value) {
-  return String(value)
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;')
 }

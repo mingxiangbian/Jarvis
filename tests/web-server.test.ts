@@ -266,7 +266,9 @@ describe('startWebServer', () => {
     expect(body).toContain('isWorkspaceLocked')
     expect(body).toContain('loadMarkdownFiles')
     expect(body).toContain('renderMarkdownPreview')
-    expect(body).toContain('escapeHtml')
+    expect(body).toContain('app-helpers.js')
+    expect(body).toContain('renderMarkdownHtml')
+    expect(body).toContain('ownsMarkdownFileResponse')
     expect(body).toContain('session-history')
     expect(body).toContain('message-group assistant')
     expect(body).toContain('assistant-avatar avatar-cartoon')
@@ -277,6 +279,20 @@ describe('startWebServer', () => {
     expect(body).toContain('message-content')
     expect(body).toContain('Cyrene')
     expect(body).not.toContain('Ask Prism')
+  })
+
+  it('serves Web UI helper code from GET /static/app-helpers.js', async () => {
+    const server = await startServer()
+
+    const response = await fetch(`${server.url}/static/app-helpers.js`)
+    const body = await response.text()
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toContain('text/javascript')
+    expect(body).toContain('renderMarkdownHtml')
+    expect(body).toContain('escapeHtml')
+    expect(body).toContain('ownsMarkdownFilesResponse')
+    expect(body).toContain('buildRunRequestBody')
   })
 
   it('rejects run creation without a user message', async () => {
