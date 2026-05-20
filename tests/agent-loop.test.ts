@@ -360,15 +360,16 @@ describe('runAgentLoop', () => {
   it('executes tool calls and feeds the result back to the model', async () => {
     let calls = 0
     const seenMessages: ChatMessage[][] = []
-    const dailyChunks: string[][] = []
+    const summaryInputs: Array<{ userPrompt: string; finalText: string }> = []
     const result = await runAgentLoop({
       config: createDefaultConfig('/tmp/project'),
       systemPrompt: 'system',
       userPrompt: 'echo',
       tools: [echoTool],
-      dailyLogger: {
-        appendDaily: async (_cwd, chunks) => {
-          dailyChunks.push(chunks)
+      dailySummary: {
+        maybeAppendDailySummary: async ({ userPrompt, finalText }) => {
+          summaryInputs.push({ userPrompt, finalText })
+          return true
         }
       },
       callModel: async ({ messages }): Promise<ModelResponse> => {
@@ -397,8 +398,7 @@ describe('runAgentLoop', () => {
       tool_call_id: 'call-1',
       content: 'tool output'
     })
-    expect(dailyChunks).toHaveLength(1)
-    expect(dailyChunks[0]?.[0]).toMatch(/^\[\d{2}:\d{2}\] echo -> ok$/)
+    expect(summaryInputs).toEqual([{ userPrompt: 'echo', finalText: 'done after tool' }])
   })
 
   it('emits observer lifecycle events around model calls, tool calls, and final response', async () => {
@@ -531,9 +531,54 @@ describe('runAgentLoop', () => {
     expect(events).toEqual(['thinking:start', 'thinking:stop', 'response'])
   })
 
-  it('logs failed tool calls to daily memory', async () => {
+  it('does not append per-tool daily facts for tool-only work while summary hook is called once', async () => {
+    const dailyChunks: string[][] = []
+    const summaryInputs: Array<{ userPrompt: string; finalText: string }> = []
+    let calls = 0
+
+    const result = await runAgentLoop({
+      config: createDefaultConfig('/tmp/project'),
+      systemPrompt: 'system',
+      userPrompt: 'echo',
+      tools: [echoTool],
+      dailyLogger: {
+        appendDaily: async (_cwd, chunks) => {
+          dailyChunks.push(chunks)
+        }
+      },
+      dailySummary: {
+        maybeAppendDailySummary: async ({ userPrompt, finalText }) => {
+          summaryInputs.push({ userPrompt, finalText })
+          return true
+        }
+      },
+      callModel: async (): Promise<ModelResponse> => {
+        calls += 1
+        if (calls === 1) {
+          return {
+            content: '',
+            toolCalls: [
+              {
+                id: 'call-1',
+                type: 'function',
+                function: { name: 'echo', arguments: '{"text":"tool-only output"}' }
+              }
+            ]
+          }
+        }
+        return { content: 'done', toolCalls: [] }
+      }
+    })
+
+    expect(result.finalText).toBe('done')
+    expect(dailyChunks).toEqual([])
+    expect(summaryInputs).toEqual([{ userPrompt: 'echo', finalText: 'done' }])
+  })
+
+  it('exposes failed-tool outcomes only through final answer summary input, not per-tool chunks', async () => {
     const config = createDefaultConfig('/tmp/project')
     const dailyChunks: string[][] = []
+    const summaryInputs: Array<{ userPrompt: string; finalText: string }> = []
     let calls = 0
 
     const result = await runAgentLoop({
@@ -544,6 +589,12 @@ describe('runAgentLoop', () => {
       dailyLogger: {
         appendDaily: async (_cwd, chunks) => {
           dailyChunks.push(chunks)
+        }
+      },
+      dailySummary: {
+        maybeAppendDailySummary: async ({ userPrompt, finalText }) => {
+          summaryInputs.push({ userPrompt, finalText })
+          return true
         }
       },
       callModel: async (): Promise<ModelResponse> => {
@@ -560,25 +611,27 @@ describe('runAgentLoop', () => {
             ]
           }
         }
-        return { content: 'done', toolCalls: [] }
+        return { content: 'Search failed because network was down.', toolCalls: [] }
       }
     })
 
-    expect(result.finalText).toBe('done')
-    expect(dailyChunks).toHaveLength(1)
-    expect(dailyChunks[0]?.[0]).toMatch(/^\[\d{2}:\d{2}\] web_search -> failed latest docs$/)
+    expect(result.finalText).toBe('Search failed because network was down.')
+    expect(dailyChunks).toEqual([])
+    expect(summaryInputs).toEqual([
+      { userPrompt: 'search', finalText: 'Search failed because network was down.' }
+    ])
   })
 
-  it('continues when daily memory logging fails', async () => {
+  it('continues when daily summary logging fails', async () => {
     let calls = 0
     const result = await runAgentLoop({
       config: createDefaultConfig('/tmp/project'),
       systemPrompt: 'system',
       userPrompt: 'echo',
       tools: [echoTool],
-      dailyLogger: {
-        appendDaily: async () => {
-          throw new Error('daily unavailable')
+      dailySummary: {
+        maybeAppendDailySummary: async () => {
+          throw new Error('daily summary unavailable')
         }
       },
       callModel: async (): Promise<ModelResponse> => {

@@ -7,7 +7,7 @@ import {
   snipMessages
 } from './context.js'
 import type { AppConfig } from './config.js'
-import { appendDaily, extractFactFromToolCall } from './daily-logger.js'
+import { maybeAppendDailySummary } from './daily-summary.js'
 import { callModel as defaultCallModel, type ChatMessage, type ModelResponse } from './llm-client.js'
 import { estimateTokensForMessages } from './token-counter.js'
 import { executeToolCall, toolDefinitions } from './tools/index.js'
@@ -24,6 +24,9 @@ interface RunAgentLoopBaseInput {
   observer?: AgentObserver
   dailyLogger?: {
     appendDaily: (cwd: string, chunks: string[]) => Promise<void>
+  }
+  dailySummary?: {
+    maybeAppendDailySummary: typeof maybeAppendDailySummary
   }
   callModel?: (input: {
     config: AppConfig
@@ -136,13 +139,13 @@ export async function runAgentLoop(input: RunAgentLoopInput): Promise<RunAgentLo
 
       messages.push({ role: 'assistant', content: response.content })
       notifyObserver(() => observer?.onResponse(response.content))
+      await appendDailySummaryAfterFinal(input, response.content, callModel)
       return { finalText: response.content, toolCallCount }
     }
 
     emptyFinalResponseCount = 0
     const remainingToolCalls = input.config.maxToolCallsPerTurn - toolCallCount
     const toolCallsToRun = response.toolCalls.slice(0, remainingToolCalls)
-    const dailyFacts: string[] = []
     messages.push({
       role: 'assistant',
       content: response.content,
@@ -179,15 +182,6 @@ export async function runAgentLoop(input: RunAgentLoopInput): Promise<RunAgentLo
           summarizeToolResult(result.content, result.ok)
         )
       )
-      const dailyFact = extractFactFromToolCall({
-        toolName: name,
-        argumentsText: toolCall.function.arguments,
-        ok: result.ok,
-        content: result.content
-      })
-      if (dailyFact !== null) {
-        dailyFacts.push(dailyFact)
-      }
 
       messages.push({
         role: 'tool',
@@ -203,14 +197,6 @@ export async function runAgentLoop(input: RunAgentLoopInput): Promise<RunAgentLo
         break
       }
     }
-
-    if (dailyFacts.length > 0) {
-      try {
-        await (input.dailyLogger?.appendDaily ?? appendDaily)(input.config.cwd, dailyFacts)
-      } catch {
-        // Daily memory is best-effort and must not block the agent loop.
-      }
-    }
   }
 
   const finalText = `Stopped after ${input.config.maxToolCallsPerTurn} tool calls to avoid an infinite loop.`
@@ -219,6 +205,28 @@ export async function runAgentLoop(input: RunAgentLoopInput): Promise<RunAgentLo
   return {
     finalText,
     toolCallCount
+  }
+}
+
+async function appendDailySummaryAfterFinal(
+  input: RunAgentLoopInput,
+  finalText: string,
+  callModel: (input: { config: AppConfig; messages: ChatMessage[]; tools: unknown[] }) => Promise<ModelResponse>
+): Promise<void> {
+  if (!('userPrompt' in input) || input.userPrompt === undefined) {
+    return
+  }
+
+  try {
+    await (input.dailySummary?.maybeAppendDailySummary ?? maybeAppendDailySummary)({
+      cwd: input.config.cwd,
+      config: input.config,
+      userPrompt: input.userPrompt,
+      finalText,
+      callModel
+    })
+  } catch {
+    // Daily memory is best-effort and must not block the agent loop.
   }
 }
 
