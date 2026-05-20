@@ -38,6 +38,24 @@ describe('main CLI', () => {
     }
   })
 
+  it('rejects --resume without --repl', async () => {
+    try {
+      await execFileAsync(process.execPath, [
+        'node_modules/tsx/dist/cli.mjs',
+        'src/main.ts',
+        '--resume',
+        'session-1',
+        'hello'
+      ], {
+        env: cliEnv()
+      })
+      throw new Error('CLI unexpectedly succeeded')
+    } catch (error) {
+      expect((error as { code?: number }).code).toBe(1)
+      expect(String((error as { stderr?: string }).stderr ?? '')).toContain('--resume can only be used with --repl.')
+    }
+  })
+
   it('rejects an invalid --port value', async () => {
     for (const portArg of ['abc', '--port=']) {
       const args =

@@ -13,10 +13,13 @@ const inspectorEdgeToggle = document.querySelector('#inspectorEdgeToggle')
 const inspectorClose = document.querySelector('#inspectorClose')
 const inspectorContent = document.querySelector('#inspectorContent')
 const headerStatus = document.querySelector('#headerStatus')
+const chatHeading = document.querySelector('.chat-title h2')
+const sessionHistory = document.querySelector('#sessionHistory')
 const tabs = Array.from(document.querySelectorAll('.tab'))
 
 const state = {
   sessionId: null,
+  sessions: [],
   messages: [],
   activeRun: null,
   tools: [],
@@ -26,6 +29,8 @@ const state = {
   inspectorOpen: false,
   runStatus: 'Ready'
 }
+
+void loadSessions()
 
 composer?.addEventListener('submit', (event) => {
   event.preventDefault()
@@ -54,10 +59,12 @@ function resetChat() {
   state.sessionId = null
   state.messages = []
   state.tools = []
+  updateChatTitle('Untitled session')
   updateRunStatus('Ready')
   setSending(false)
   renderEmptyState()
   renderInspector()
+  renderSessionList()
   if (promptInput) {
     promptInput.value = ''
     autoResizePromptInput()
@@ -137,6 +144,7 @@ async function sendPrompt() {
 
   const { runId, sessionId } = await response.json()
   state.sessionId = sessionId
+  renderSessionList()
   const stream = new EventSource(`/api/runs/${runId}/events`)
   state.activeRun = stream
 
@@ -200,11 +208,14 @@ function finishRun(stream) {
   if (!stream || state.activeRun === stream) {
     state.activeRun = null
     setSending(false)
+    void loadSessions()
   }
 }
 
 function finishWithError(error, stream) {
-  appendMessage('error', error instanceof Error ? error.message : String(error))
+  const message = error instanceof Error ? error.message : String(error)
+  appendMessage('error', message)
+  state.messages.push({ role: 'error', content: message })
   updateRunStatus('Error')
   finishRun(stream || state.activeRun)
 }
@@ -265,6 +276,98 @@ function appendAssistantMessage(text) {
   messages?.append(group)
   messages?.scrollTo({ top: messages.scrollHeight, behavior: 'smooth' })
   return group
+}
+
+async function loadSessions() {
+  let response
+  try {
+    response = await fetch('/api/sessions')
+  } catch {
+    return
+  }
+  if (!response.ok) {
+    return
+  }
+  const body = await response.json()
+  state.sessions = Array.isArray(body.sessions) ? body.sessions : []
+  renderSessionList()
+  const current = state.sessions.find((session) => session.id === state.sessionId)
+  if (current) {
+    updateChatTitle(current.title)
+  }
+}
+
+async function loadSession(sessionId) {
+  if (state.activeRun || sessionId === state.sessionId) {
+    return
+  }
+  const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`)
+  if (!response.ok) {
+    return
+  }
+  const body = await response.json()
+  state.sessionId = body.session.id
+  state.messages = Array.isArray(body.messages) ? body.messages : []
+  state.tools = []
+  updateChatTitle(body.session.title || 'Untitled session')
+  updateRunStatus('Ready')
+  renderMessages()
+  renderInspector()
+  renderSessionList()
+}
+
+function renderSessionList() {
+  if (!sessionHistory) {
+    return
+  }
+
+  sessionHistory.replaceChildren()
+  if (state.sessions.length === 0) {
+    const empty = document.createElement('p')
+    empty.className = 'session-history-empty'
+    empty.textContent = 'No saved sessions'
+    sessionHistory.append(empty)
+    return
+  }
+
+  for (const session of state.sessions) {
+    const button = document.createElement('button')
+    button.className = 'session-row'
+    button.type = 'button'
+    button.classList.toggle('is-active', session.id === state.sessionId)
+    button.disabled = state.activeRun !== null
+    button.addEventListener('click', () => {
+      void loadSession(session.id)
+    })
+
+    const title = document.createElement('span')
+    title.className = 'session-title'
+    title.textContent = session.title || 'Untitled session'
+
+    const preview = document.createElement('span')
+    preview.className = 'session-preview'
+    preview.textContent = session.preview || formatSessionTime(session.updatedAt)
+
+    button.append(title, preview)
+    sessionHistory.append(button)
+  }
+}
+
+function renderMessages() {
+  messages?.replaceChildren()
+  if (state.messages.length === 0) {
+    renderEmptyState()
+    return
+  }
+  for (const message of state.messages) {
+    appendMessage(message.role, message.content)
+  }
+}
+
+function updateChatTitle(title) {
+  if (chatHeading) {
+    chatHeading.textContent = title
+  }
 }
 
 function updateRunStatus(text) {
@@ -374,6 +477,7 @@ function setSending(isSending) {
     railNewChatButton.disabled = isSending || state.activeRun !== null
   }
   appShell?.classList.toggle('run-active', isSending)
+  renderSessionList()
 }
 
 function autoResizePromptInput() {
@@ -393,6 +497,14 @@ function formatDuration(durationMs) {
     return `${durationMs} ms`
   }
   return `${(durationMs / 1000).toFixed(1)} s`
+}
+
+function formatSessionTime(value) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return ''
+  }
+  return date.toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })
 }
 
 function clamp(value, min, max) {

@@ -36,6 +36,7 @@ describe('createDefaultConfig', () => {
     expect(config.dailyCompactThreshold).toBe(500)
     expect(config.dailyLoadLines).toBe(200)
     expect(config.dailySummaryMaxLength).toBe(400)
+    expect(config.sessionResumeRecentMessages).toBe(40)
     expect(config.memoryMaxLines).toBe(200)
     expect(config.memoryMaxLineLength).toBe(150)
     expect(config.writableRoots).toEqual(['/tmp/project'])

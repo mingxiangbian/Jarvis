@@ -22,6 +22,7 @@ export interface AppConfig {
   dailyCompactThreshold: number
   dailyLoadLines: number
   dailySummaryMaxLength: number
+  sessionResumeRecentMessages: number
   memoryMaxLines: number
   memoryMaxLineLength: number
   readMaxInlineLines: number
@@ -54,6 +55,7 @@ export function createDefaultConfig(cwd: string): AppConfig {
     dailyCompactThreshold: 500,
     dailyLoadLines: 200,
     dailySummaryMaxLength: 400,
+    sessionResumeRecentMessages: 40,
     memoryMaxLines: 200,
     memoryMaxLineLength: 150,
     readMaxInlineLines: 500,

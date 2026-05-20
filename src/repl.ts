@@ -8,6 +8,7 @@ import {
   type CompactDailyIfNeededInput
 } from './daily-compaction.js'
 import { callModel as defaultCallModel, type CallModelInput, type ChatMessage, type ModelResponse } from './llm-client.js'
+import { appendSessionEvent, createSession, loadSession } from './session-store.js'
 import type { Tool, ToolContext } from './tools/types.js'
 import { createTerminalObserver, renderWelcome, type AgentObserver } from './ui-observer.js'
 
@@ -19,6 +20,10 @@ export interface RunReplTurnInput {
   tools: Tool<unknown>[]
   observer?: AgentObserver
   toolContext?: ToolContext
+  session?: {
+    cwd: string
+    sessionId?: string
+  }
   callModel?: (input: CallModelInput) => Promise<ModelResponse>
 }
 
@@ -61,15 +66,58 @@ export async function runReplTurn(input: RunReplTurnInput): Promise<RunReplTurnR
     }
   }
 
-  input.messages.push({ role: 'user', content: text })
-  const result = await runAgentLoop({
-    config: input.config,
-    messages: input.messages,
-    tools: input.tools,
-    observer: input.observer,
-    toolContext: input.toolContext,
-    callModel: input.callModel
-  })
+  const userMessage: ChatMessage = { role: 'user', content: text }
+  input.messages.push(userMessage)
+
+  if (input.session !== undefined) {
+    if (input.session.sessionId === undefined) {
+      const session = await createSession({
+        cwd: input.session.cwd,
+        mode: 'repl',
+        model: input.config.model.model,
+        firstUserMessage: userMessage
+      })
+      input.session.sessionId = session.id
+    } else {
+      await appendSessionEvent({
+        cwd: input.session.cwd,
+        sessionId: input.session.sessionId,
+        event: { type: 'message', message: userMessage }
+      })
+    }
+  }
+
+  let result: Awaited<ReturnType<typeof runAgentLoop>>
+  try {
+    result = await runAgentLoop({
+      config: input.config,
+      messages: input.messages,
+      tools: input.tools,
+      observer: input.observer,
+      toolContext: input.toolContext,
+      callModel: input.callModel
+    })
+  } catch (error) {
+    if (input.session?.sessionId !== undefined) {
+      await appendSessionEvent({
+        cwd: input.session.cwd,
+        sessionId: input.session.sessionId,
+        event: {
+          type: 'error',
+          message: error instanceof Error ? error.message : String(error)
+        }
+      }).catch(() => {})
+    }
+    throw error
+  }
+
+  if (input.session?.sessionId !== undefined) {
+    await appendSessionEvent({
+      cwd: input.session.cwd,
+      sessionId: input.session.sessionId,
+      event: { type: 'message', message: { role: 'assistant', content: result.finalText } }
+    })
+  }
 
   return { kind: 'agent', finalText: result.finalText, toolCallCount: result.toolCallCount }
 }
@@ -81,8 +129,27 @@ export async function runRepl(inputConfig: {
   callModel?: (input: CallModelInput) => Promise<ModelResponse>
   readline?: ReplReadline
   compactDailyIfNeeded?: (input: CompactDailyIfNeededInput) => Promise<void>
+  resumeSessionId?: string
 }): Promise<void> {
-  const messages: ChatMessage[] = [{ role: 'system', content: inputConfig.systemPrompt }]
+  const resumed = inputConfig.resumeSessionId === undefined
+    ? null
+    : await loadSession({
+        cwd: inputConfig.config.cwd,
+        sessionId: inputConfig.resumeSessionId,
+        recentMessages: inputConfig.config.sessionResumeRecentMessages
+      })
+  if (inputConfig.resumeSessionId !== undefined && resumed === null) {
+    throw new Error(`Session not found: ${inputConfig.resumeSessionId}`)
+  }
+
+  const session = {
+    cwd: inputConfig.config.cwd,
+    sessionId: resumed?.session.id
+  }
+  const messages: ChatMessage[] = [
+    { role: 'system', content: inputConfig.systemPrompt },
+    ...(resumed?.modelMessages ?? [])
+  ]
   const toolContext: ToolContext = {
     config: inputConfig.config,
     trackedFiles: new Set<string>()
@@ -103,6 +170,7 @@ export async function runRepl(inputConfig: {
         tools: inputConfig.tools,
         observer,
         toolContext,
+        session,
         callModel: inputConfig.callModel
       })
 

@@ -51,6 +51,7 @@ describe('startWebServer', () => {
     expect(body).toContain('id="sidebarRail"')
     expect(body).toContain('id="railNewChatButton"')
     expect(body).toContain('id="headerStatus"')
+    expect(body).toContain('id="sessionHistory"')
     expect(body).toContain('id="inspectorEdgeToggle"')
     expect(body).toContain('class="chat-actions"')
     expect(body).toContain('class="brand-avatar avatar-cartoon"')
@@ -155,6 +156,9 @@ describe('startWebServer', () => {
     expect(body).toContain('Math.min(promptInput.scrollHeight, 150)')
     expect(body).toContain('updateRunStatus(\'Thinking...\')')
     expect(body).toContain('appendAssistantMessage')
+    expect(body).toContain('loadSessions')
+    expect(body).toContain('/api/sessions')
+    expect(body).toContain('session-history')
     expect(body).toContain('message-group assistant')
     expect(body).toContain('assistant-avatar avatar-cartoon')
     expect(body).toContain('assistant-avatar-image')
@@ -402,6 +406,82 @@ describe('startWebServer', () => {
       { role: 'user', content: 'hello web' },
       { role: 'assistant', content: 'web answer' },
       { role: 'user', content: 'next question' }
+    ])
+  })
+
+  it('persists Web sessions and reloads them for a later server instance', async () => {
+    const cwd = await createTempCwd()
+    const firstCallModel = vi.fn(async (): Promise<ModelResponse> => ({ content: 'first answer', toolCalls: [] }))
+    const firstServer = await startWebServer({
+      cwd,
+      host: '127.0.0.1',
+      port: 0,
+      callModel: firstCallModel
+    })
+    servers.push(firstServer)
+
+    const createResponse = await fetch(`${firstServer.url}/api/runs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ message: 'remember this web session' })
+    })
+    expect(createResponse.status).toBe(202)
+    const createBody = (await createResponse.json()) as { runId: string; sessionId: string }
+    await fetch(`${firstServer.url}/api/runs/${createBody.runId}/events`).then((response) => response.text())
+
+    await firstServer.close()
+    servers.pop()
+
+    const secondModelMessages: CallModelInput['messages'][] = []
+    const secondServer = await startWebServer({
+      cwd,
+      host: '127.0.0.1',
+      port: 0,
+      callModel: async (input: CallModelInput): Promise<ModelResponse> => {
+        secondModelMessages.push(input.messages.map((message) => ({ ...message })))
+        return { content: 'second answer', toolCalls: [] }
+      }
+    })
+    servers.push(secondServer)
+
+    const listResponse = await fetch(`${secondServer.url}/api/sessions`)
+    expect(listResponse.status).toBe(200)
+    await expect(listResponse.json()).resolves.toEqual({
+      sessions: [
+        expect.objectContaining({
+          id: createBody.sessionId,
+          title: 'remember this web session',
+          preview: 'first answer'
+        })
+      ]
+    })
+
+    const loadResponse = await fetch(`${secondServer.url}/api/sessions/${createBody.sessionId}`)
+    expect(loadResponse.status).toBe(200)
+    await expect(loadResponse.json()).resolves.toEqual({
+      session: expect.objectContaining({ id: createBody.sessionId }),
+      messages: [
+        { role: 'user', content: 'remember this web session' },
+        { role: 'assistant', content: 'first answer' }
+      ]
+    })
+
+    const resumeResponse = await fetch(`${secondServer.url}/api/runs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        sessionId: createBody.sessionId,
+        message: 'continue'
+      })
+    })
+    expect(resumeResponse.status).toBe(202)
+    const resumeBody = (await resumeResponse.json()) as { runId: string; sessionId: string }
+    await fetch(`${secondServer.url}/api/runs/${resumeBody.runId}/events`).then((response) => response.text())
+
+    expect(secondModelMessages[0].slice(1)).toEqual([
+      { role: 'user', content: 'remember this web session' },
+      { role: 'assistant', content: 'first answer' },
+      { role: 'user', content: 'continue' }
     ])
   })
 

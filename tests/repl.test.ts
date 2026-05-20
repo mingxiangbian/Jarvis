@@ -1,9 +1,13 @@
-import { describe, expect, it, vi } from 'vitest'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import { createDefaultConfig } from '../src/config.js'
 import type { CompactDailyIfNeededInput } from '../src/daily-compaction.js'
 import type { CallModelInput, ChatMessage, ModelResponse } from '../src/llm-client.js'
 import { runRepl, runReplTurn } from '../src/repl.js'
+import { appendSessionEvent, createSession, loadSession } from '../src/session-store.js'
 import type { Tool } from '../src/tools/types.js'
 import type { AgentObserver } from '../src/ui-observer.js'
 
@@ -60,6 +64,14 @@ function createTestReadline(lines: string[]) {
       return line
     })
   }
+}
+
+const tempDirs: string[] = []
+
+async function createTempDir(): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), 'cc-local-repl-'))
+  tempDirs.push(dir)
+  return dir
 }
 
 describe('runReplTurn', () => {
@@ -257,6 +269,10 @@ describe('runReplTurn', () => {
 })
 
 describe('runRepl', () => {
+  afterEach(async () => {
+    await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })))
+  })
+
   it('delegates daily compaction after graceful exit', async () => {
     const config = createDefaultConfig('/tmp/project')
     const readline = createTestReadline(['exit'])
@@ -385,7 +401,69 @@ describe('runRepl', () => {
     }
   })
 
-  it('does not delegate daily compaction when a turn fails before graceful exit', async () => {
+  it('resumes a stored session and appends the new REPL turn', async () => {
+    const root = await createTempDir()
+    const config = createDefaultConfig(root)
+    const session = await createSession({
+      cwd: root,
+      mode: 'repl',
+      model: config.model.model,
+      id: 'repl-session',
+      firstUserMessage: { role: 'user', content: 'first question' }
+    })
+    await appendSessionEvent({
+      cwd: root,
+      sessionId: session.id,
+      event: { type: 'message', message: { role: 'assistant', content: 'first answer' } }
+    })
+
+    const seenMessages: ChatMessage[][] = []
+    const readline = createTestReadline(['next question', 'exit'])
+    const compactDailyIfNeeded = vi.fn(async (_input: CompactDailyIfNeededInput) => {})
+    const callModel = vi.fn(async (input: CallModelInput): Promise<ModelResponse> => {
+      seenMessages.push(input.messages.map((message) => ({ ...message })))
+      return { content: 'next answer', toolCalls: [] }
+    })
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => {})
+
+    try {
+      await runRepl({
+        config,
+        systemPrompt: 'system rules',
+        tools: [],
+        callModel,
+        readline,
+        compactDailyIfNeeded,
+        resumeSessionId: session.id
+      })
+    } finally {
+      consoleLog.mockRestore()
+    }
+
+    expect(seenMessages[0]).toEqual([
+      { role: 'system', content: 'system rules' },
+      { role: 'user', content: 'first question' },
+      { role: 'assistant', content: 'first answer' },
+      { role: 'user', content: 'next question' }
+    ])
+    await expect(loadSession({ cwd: root, sessionId: session.id, recentMessages: 10 })).resolves.toEqual({
+      session: expect.objectContaining({ id: session.id }),
+      messages: [
+        { role: 'user', content: 'first question' },
+        { role: 'assistant', content: 'first answer' },
+        { role: 'user', content: 'next question' },
+        { role: 'assistant', content: 'next answer' }
+      ],
+      modelMessages: [
+        { role: 'user', content: 'first question' },
+        { role: 'assistant', content: 'first answer' },
+        { role: 'user', content: 'next question' },
+        { role: 'assistant', content: 'next answer' }
+      ]
+    })
+  })
+
+  it('does not compact daily memory when a turn fails before graceful exit', async () => {
     const readline = createTestReadline(['hello'])
     const compactDailyIfNeeded = vi.fn(async (_input: CompactDailyIfNeededInput) => {})
     const callModel = vi.fn(async (_input: CallModelInput): Promise<ModelResponse> => {
