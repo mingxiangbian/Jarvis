@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildRunRequestBody,
+  contextUsagePercent,
   encodedWorkspaceId,
+  estimateContextTokens,
   isWorkspaceLockedState,
   ownsMarkdownFileResponse,
   ownsMarkdownFilesResponse,
@@ -99,5 +101,23 @@ describe('web static helpers', () => {
     expect(isWorkspaceLockedState({ isSending: true, activeRun: null })).toBe(true)
     expect(isWorkspaceLockedState({ isSending: false, activeRun: {} })).toBe(true)
     expect(isWorkspaceLockedState({ isSending: false, activeRun: null })).toBe(false)
+  })
+
+  it('estimates context usage from saved messages and the current draft', () => {
+    expect(estimateContextTokens([], '')).toBe(0)
+    expect(estimateContextTokens([
+      { role: 'user', content: 'abcd' },
+      { role: 'assistant', content: '你好' }
+    ], 'draft')).toBe(5)
+    expect(contextUsagePercent({
+      messages: [{ role: 'user', content: 'x'.repeat(400) }],
+      draft: '',
+      contextWindowTokens: 100
+    })).toBe(100)
+    expect(contextUsagePercent({
+      messages: [{ role: 'user', content: 'hello' }],
+      draft: '',
+      contextWindowTokens: 100
+    })).toBe(2)
   })
 })

@@ -1,5 +1,5 @@
 import { readFile, realpath } from 'node:fs/promises'
-import { isAbsolute, resolve } from 'node:path'
+import { isAbsolute, relative, resolve } from 'node:path'
 import { z } from 'zod'
 import type { Tool } from './types.js'
 
@@ -9,6 +9,20 @@ const schema = z.object({
 
 function resolveFromCwd(cwd: string, filePath: string): string {
   return isAbsolute(filePath) ? filePath : resolve(cwd, filePath)
+}
+
+function isUnderRoot(path: string, root: string): boolean {
+  const relativePath = relative(root, path)
+  return relativePath === '' || (!relativePath.startsWith('..') && !isAbsolute(relativePath))
+}
+
+async function isUnderReadableRoot(path: string, roots: string[]): Promise<boolean> {
+  for (const root of roots) {
+    if (isUnderRoot(path, await realpath(root))) {
+      return true
+    }
+  }
+  return false
 }
 
 function numberLines(content: string): string {
@@ -41,6 +55,10 @@ export const fileReadTool: Tool<z.infer<typeof schema>> = {
 
     try {
       const canonical = await realpath(resolved)
+      if (!(await isUnderReadableRoot(canonical, context.config.readableRoots))) {
+        return { ok: false, content: `Refusing to read ${canonical}: outside readable roots.` }
+      }
+
       const content = await readFile(canonical, 'utf8')
       context.trackedFiles.add(canonical)
 

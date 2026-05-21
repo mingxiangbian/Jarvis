@@ -8,6 +8,7 @@ export type SessionMode = 'web' | 'repl'
 export interface SessionIndexItem {
   id: string
   mode: SessionMode
+  workspaceId?: string
   title: string
   preview: string
   createdAt: string
@@ -46,6 +47,7 @@ export async function createSession(input: {
   firstUserMessage?: ChatMessage
   now?: Date
   id?: string
+  workspaceId?: string
 }): Promise<SessionIndexItem> {
   const id = input.id ?? randomUUID()
   assertSafeSessionId(id)
@@ -53,6 +55,7 @@ export async function createSession(input: {
   const session: SessionIndexItem = {
     id,
     mode: input.mode,
+    ...(input.workspaceId === undefined ? {} : { workspaceId: input.workspaceId }),
     title: titleFromMessage(input.firstUserMessage) ?? 'Untitled session',
     preview: previewFromMessage(input.firstUserMessage) ?? '',
     createdAt: now,
@@ -383,6 +386,7 @@ function isSessionIndexItem(value: unknown): value is LegacySessionIndexItem {
     typeof value.createdAt === 'string' &&
     typeof value.updatedAt === 'string' &&
     typeof value.model === 'string' &&
+    (value.workspaceId === undefined || typeof value.workspaceId === 'string') &&
     (value.pinned === undefined || typeof value.pinned === 'boolean')
 }
 

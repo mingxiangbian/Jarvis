@@ -5,10 +5,12 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { buildAgentRuntime } from '../src/web/prompt-context.js'
 
 const originalHome = process.env.HOME
+const originalTimeZone = process.env.TZ
 const tempHomes: string[] = []
 
 afterEach(async () => {
   process.env.HOME = originalHome
+  process.env.TZ = originalTimeZone
   await Promise.all(tempHomes.splice(0).map((home) => rm(home, { recursive: true, force: true })))
 })
 
@@ -17,6 +19,7 @@ describe('buildAgentRuntime', () => {
     const home = await mkdtemp(join(tmpdir(), 'cc-local-web-home-'))
     tempHomes.push(home)
     process.env.HOME = home
+    process.env.TZ = 'Asia/Shanghai'
 
     const root = join(home, 'workspace', 'project')
     const userCcLocalDir = join(home, '.cc-local')
@@ -35,13 +38,13 @@ describe('buildAgentRuntime', () => {
     await writeFile(join(userCcLocalDir, 'memory', 'global.md'), 'Remember global fact.\n')
     await writeFile(join(root, '.cc-local', 'memory', 'daily.md'), 'recent one\nrecent two\n')
 
-    const runtime = await buildAgentRuntime(root, new Date('2026-05-18T08:00:00.000Z'))
+    const runtime = await buildAgentRuntime(root, new Date('2026-05-20T16:30:00.000Z'))
 
     expect(runtime.config.cwd).toBe(resolve(root))
     expect(runtime.config.writableRoots).toEqual([resolve(root)])
 
     const expectedOrder = [
-      '# currentDate\nToday\'s date is 2026-05-18.',
+      '# currentDate\nToday\'s date is 2026-05-21.',
       '## Global Persona\n\nBe direct.',
       '## Global Rule\n\nGlobal rule.',
       '## Rule:',

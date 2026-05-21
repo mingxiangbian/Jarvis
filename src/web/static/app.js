@@ -1,5 +1,6 @@
 import {
   buildRunRequestBody,
+  contextUsagePercent,
   encodedWorkspaceId,
   isWorkspaceLockedState,
   ownsMarkdownFileResponse,
@@ -12,6 +13,8 @@ const leftResizeHandle = document.querySelector('#leftResizeHandle')
 const messages = document.querySelector('#messages')
 const composer = document.querySelector('#composer')
 const promptInput = document.querySelector('#promptInput')
+const contextUsageButton = document.querySelector('#contextUsageButton')
+const contextUsageValue = document.querySelector('#contextUsageValue')
 const sendButton = document.querySelector('#sendButton')
 const newChatButton = document.querySelector('#newChatButton')
 const railNewChatButton = document.querySelector('#railNewChatButton')
@@ -50,6 +53,7 @@ const state = {
   inspectorTab: 'tools',
   sidebarCollapsed: false,
   inspectorOpen: false,
+  contextUsageDetailsVisible: false,
   theme: readStoredTheme(),
   runStatus: 'Ready'
 }
@@ -63,6 +67,7 @@ void loadWorkspaces()
 void loadSessions()
 setTheme(state.theme)
 updateChatLayoutState()
+updateContextUsageIndicator()
 
 composer?.addEventListener('submit', (event) => {
   event.preventDefault()
@@ -76,6 +81,10 @@ promptInput?.addEventListener('keydown', (event) => {
   }
 })
 promptInput?.addEventListener('input', autoResizePromptInput)
+contextUsageButton?.addEventListener('click', () => {
+  state.contextUsageDetailsVisible = !state.contextUsageDetailsVisible
+  updateContextUsageIndicator()
+})
 
 newChatButton?.addEventListener('click', resetChat)
 railNewChatButton?.addEventListener('click', resetChat)
@@ -111,6 +120,7 @@ function resetChat() {
   closeSessionMenu(false)
   state.messages = []
   state.tools = []
+  state.contextUsageDetailsVisible = false
   updateChatTitle('Untitled session')
   updateRunStatus('Ready')
   setSending(false)
@@ -252,6 +262,7 @@ function handleRunEvent(event, stream) {
     case 'final':
       appendMessage('assistant', event.text)
       state.messages.push({ role: 'assistant', content: event.text })
+      updateContextUsageIndicator()
       finishRun(stream)
       break
     case 'error':
@@ -276,6 +287,7 @@ function finishWithError(error, stream) {
   const message = error instanceof Error ? error.message : String(error)
   appendMessage('error', message)
   state.messages.push({ role: 'error', content: message })
+  updateContextUsageIndicator()
   updateRunStatus('Error')
   finishRun(stream || state.activeRun)
 }
@@ -540,11 +552,13 @@ async function loadSession(sessionId) {
   const body = await response.json()
   state.sessionId = body.session.id
   state.messages = Array.isArray(body.messages) ? body.messages : []
+  state.contextUsageDetailsVisible = false
   updateChatLayoutState()
   state.tools = []
   updateChatTitle(body.session.title || 'Untitled session')
   updateRunStatus('Ready')
   renderMessages()
+  updateContextUsageIndicator()
   renderInspector()
   renderSessionList()
 }
@@ -795,6 +809,7 @@ function renderMessages() {
     appendMessage(message.role, message.content)
   }
   updateChatLayoutState()
+  updateContextUsageIndicator()
 }
 
 function updateChatTitle(title) {
@@ -1051,6 +1066,24 @@ function autoResizePromptInput() {
 
   promptInput.style.height = '42px'
   promptInput.style.height = `${Math.min(promptInput.scrollHeight, 150)}px`
+  updateContextUsageIndicator()
+}
+
+function updateContextUsageIndicator() {
+  if (!contextUsageButton || !contextUsageValue) {
+    return
+  }
+  const percent = contextUsagePercent({
+    messages: state.messages,
+    draft: promptInput?.value || ''
+  })
+  const label = `Context usage ${percent}%`
+  contextUsageButton.style.setProperty('--context-usage', `${percent}%`)
+  contextUsageButton.classList.toggle('show-value', state.contextUsageDetailsVisible)
+  contextUsageButton.setAttribute('aria-label', label)
+  contextUsageButton.setAttribute('aria-pressed', String(state.contextUsageDetailsVisible))
+  contextUsageButton.setAttribute('title', label)
+  contextUsageValue.textContent = `${percent}%`
 }
 
 function formatDuration(durationMs) {

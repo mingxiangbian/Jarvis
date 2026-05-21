@@ -31,6 +31,7 @@ export interface AppConfig {
   llmRequestTimeoutMs: number
   llmRetryMaxAttempts: number
   llmRetryBaseDelayMs: number
+  readableRoots: string[]
   writableRoots: string[]
   bashDenyPatterns: RegExp[]
 }
@@ -64,6 +65,7 @@ export function createDefaultConfig(cwd: string): AppConfig {
     llmRequestTimeoutMs: 180_000,
     llmRetryMaxAttempts: 3,
     llmRetryBaseDelayMs: 1_000,
+    readableRoots: [cwd],
     writableRoots: [cwd],
     bashDenyPatterns: [
       /\brm\b(?=.*(?:^|\s)-[A-Za-z]*r)(?=.*(?:^|\s)-[A-Za-z]*f).*\s(?:--\s+)?\//,

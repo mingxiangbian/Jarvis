@@ -79,6 +79,11 @@
 
         <form id="composer" class="composer" aria-label="Send message">
           <textarea id="promptInput" name="prompt" rows="1" placeholder="Ask about this workspace or start a local agent run"></textarea>
+          <button id="contextUsageButton" class="context-usage-button" type="button" aria-label="Context usage 0%" aria-pressed="false" title="Context usage 0%">
+            <span class="context-usage-ring" aria-hidden="true">
+              <span id="contextUsageValue" class="context-usage-value">0%</span>
+            </span>
+          </button>
           <button id="sendButton" class="send-button" type="submit">Send</button>
         </form>
       </section>

@@ -92,6 +92,29 @@ describe('session store', () => {
     )
   })
 
+  it('persists optional workspace ids in the session index', async () => {
+    const cwd = await createTempCwd()
+
+    await createSession({
+      cwd,
+      mode: 'web',
+      model: 'test-model',
+      id: 'project-session',
+      workspaceId: 'project-a',
+      firstUserMessage: { role: 'user', content: 'Remember project A context' }
+    })
+
+    await expect(listSessions(cwd)).resolves.toEqual([
+      expect.objectContaining({
+        id: 'project-session',
+        workspaceId: 'project-a'
+      })
+    ])
+    await expect(readFile(join(cwd, '.cc-local', 'sessions', 'index.json'), 'utf8')).resolves.toContain(
+      '"workspaceId": "project-a"'
+    )
+  })
+
   it('rejects session directories that resolve outside the project', async () => {
     const cwd = await createTempCwd()
     const outside = await createTempCwd()

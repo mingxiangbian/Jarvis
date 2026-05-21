@@ -10,6 +10,23 @@ export function isWorkspaceLockedState(state) {
   return Boolean(state.isSending || state.activeRun !== null)
 }
 
+export function estimateContextTokens(messages, draft = '') {
+  const messageTokens = (Array.isArray(messages) ? messages : [])
+    .reduce((total, message) => total + estimateTokens(message?.content || ''), 0)
+  return messageTokens + estimateTokens(draft)
+}
+
+export function contextUsagePercent({ messages, draft = '', contextWindowTokens = 256_000 }) {
+  if (contextWindowTokens <= 0) {
+    return 0
+  }
+  const tokens = estimateContextTokens(messages, draft)
+  if (tokens === 0) {
+    return 0
+  }
+  return Math.min(100, Math.max(1, Math.round((tokens / contextWindowTokens) * 100)))
+}
+
 export function ownsMarkdownFilesResponse({
   currentToken,
   responseToken,
@@ -126,4 +143,30 @@ export function escapeHtml(value) {
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#39;')
+}
+
+function estimateTokens(text) {
+  let estimate = 0
+  for (const char of String(text || '')) {
+    const codePoint = char.codePointAt(0) || 0
+    if (isCjk(codePoint)) {
+      estimate += 1
+    } else if (codePoint <= 0x7f) {
+      estimate += 0.25
+    } else {
+      estimate += 0.5
+    }
+  }
+  return Math.ceil(estimate)
+}
+
+function isCjk(codePoint) {
+  return (
+    (codePoint >= 0x3400 && codePoint <= 0x4dbf) ||
+    (codePoint >= 0x4e00 && codePoint <= 0x9fff) ||
+    (codePoint >= 0xf900 && codePoint <= 0xfaff) ||
+    (codePoint >= 0x3040 && codePoint <= 0x30ff) ||
+    (codePoint >= 0xac00 && codePoint <= 0xd7af) ||
+    (codePoint >= 0x20000 && codePoint <= 0x2fa1f)
+  )
 }

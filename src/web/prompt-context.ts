@@ -11,6 +11,7 @@ import {
   loadRuleStack,
   loadSoul
 } from '../memory.js'
+import { formatLocalDate } from '../time.js'
 import { createCoreTools } from '../tools/index.js'
 import type { Tool } from '../tools/types.js'
 
@@ -25,7 +26,7 @@ export async function buildAgentRuntime(cwd: string, currentDate = new Date()): 
   const systemPromptPath = resolve(dirname(currentFile), '..', 'prompts/system.md')
   const config = createDefaultConfig(resolve(cwd))
   const baseSystemPrompt = await readFile(systemPromptPath, 'utf8')
-  const currentDateText = currentDate.toISOString().slice(0, 10)
+  const currentDateText = formatLocalDate(currentDate)
   const persona = await loadSoul(config.userCcLocalDir)
   const rules = await loadRuleStack(config.cwd, config.userCcLocalDir)
   const projectInstructions = await loadInstructionsIfExists(config.cwd)

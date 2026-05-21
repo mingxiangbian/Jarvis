@@ -149,6 +149,7 @@ export async function runAgentLoop(input: RunAgentLoopInput): Promise<RunAgentLo
     for (const toolCall of toolCallsToRun) {
       toolCallCount += 1
       const name = toolCall.function.name
+      const tool = input.tools.find((candidate) => candidate.name === name)
       const summary = toolCallSummary(name, toolCall.function.arguments)
       const toolStartedAt = Date.now()
       notifyObserver(() => observer?.onToolCallStart(name, summary))
@@ -185,6 +186,14 @@ export async function runAgentLoop(input: RunAgentLoopInput): Promise<RunAgentLo
 
       if (name === 'web_search' && !context.unavailableTools.has('web_search')) {
         updateWebSearchAvailability(context, result.ok, messages)
+      }
+
+      if (result.ok && tool?.needsUserInteraction === true) {
+        notifyObserver(() => observer?.onResponse(result.content))
+        return {
+          finalText: result.content,
+          toolCallCount
+        }
       }
 
       if (toolCallCount >= input.config.maxToolCallsPerTurn) {

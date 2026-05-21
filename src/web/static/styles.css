@@ -416,11 +416,12 @@ button {
 }
 
 .workspace-change-button {
-  border: 1px solid rgba(255, 255, 255, 0.68);
+  border: 1px solid rgba(80, 103, 132, 0.42);
   border-radius: 999px;
   font-size: 12px;
   font-weight: 700;
-  background: rgba(255, 255, 255, 0.58);
+  background: rgba(255, 255, 255, 0.7);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.74), 0 8px 18px rgba(89, 111, 137, 0.1);
 }
 
 .workspace-picker {
@@ -452,7 +453,11 @@ button {
   white-space: nowrap;
 }
 
-.workspace-change-button:hover,
+.workspace-change-button:hover {
+  border-color: rgba(57, 79, 106, 0.55);
+  background: rgba(255, 255, 255, 0.82);
+}
+
 .workspace-option:hover,
 .workspace-option.is-active {
   border-color: rgba(255, 255, 255, 0.7);
@@ -546,6 +551,7 @@ body.is-resizing-left .left-resize-handle {
   z-index: 2;
   display: flex;
   align-items: start;
+  gap: 10px;
   padding-top: 2px;
 }
 
@@ -788,7 +794,7 @@ button:disabled {
 
 .composer {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 10px;
   align-items: center;
   margin: 0 22px 20px;
@@ -832,6 +838,54 @@ button:disabled {
 
 #promptInput:focus {
   box-shadow: none;
+}
+
+.context-usage-button {
+  --context-usage: 0%;
+  display: grid;
+  width: 42px;
+  height: 42px;
+  min-width: 42px;
+  padding: 0;
+  border-radius: 999px;
+  color: #4f6075;
+  background: rgba(255, 255, 255, 0.54);
+  cursor: pointer;
+  place-items: center;
+}
+
+.context-usage-ring {
+  position: relative;
+  display: grid;
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  background: conic-gradient(#5ddcff var(--context-usage), rgba(117, 139, 166, 0.23) 0);
+  place-items: center;
+}
+
+.context-usage-ring::after {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  content: "";
+}
+
+.context-usage-value {
+  position: relative;
+  z-index: 1;
+  color: #3e536d;
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.context-usage-button.show-value .context-usage-value {
+  opacity: 1;
 }
 
 .inspector {
@@ -1142,6 +1196,23 @@ body.theme-dark .composer {
 body.theme-dark .composer:focus-within {
   border-color: rgba(93, 220, 255, 0.46);
   background: rgba(22, 29, 68, 0.84);
+}
+
+body.theme-dark .context-usage-button {
+  color: #d9daf2;
+  background: rgba(28, 35, 76, 0.72);
+}
+
+body.theme-dark .context-usage-ring {
+  background: conic-gradient(#5ddcff var(--context-usage), rgba(203, 189, 255, 0.2) 0);
+}
+
+body.theme-dark .context-usage-ring::after {
+  background: rgba(18, 24, 58, 0.94);
+}
+
+body.theme-dark .context-usage-value {
+  color: #d9daf2;
 }
 
 body.theme-dark #promptInput::placeholder {

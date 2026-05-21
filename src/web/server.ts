@@ -66,6 +66,13 @@ interface WebServerContext {
 
 const currentFile = fileURLToPath(import.meta.url)
 const staticDir = resolve(dirname(currentFile), 'static')
+const MAX_REQUEST_BODY_BYTES = 1_000_000
+
+class RequestBodyTooLargeError extends Error {
+  constructor() {
+    super('Request body too large.')
+  }
+}
 
 export async function startWebServer(input: StartWebServerInput): Promise<WebServerHandle> {
   const runtime = await buildAgentRuntime(input.cwd)
@@ -213,8 +220,12 @@ async function createRun(
   let body: unknown
   try {
     body = JSON.parse(await readRequestBody(request))
-  } catch {
-    writeJson(response, 400, { error: 'Invalid JSON body.' })
+  } catch (error) {
+    writeJson(
+      response,
+      error instanceof RequestBodyTooLargeError ? 413 : 400,
+      { error: error instanceof RequestBodyTooLargeError ? 'Request body too large.' : 'Invalid JSON body.' }
+    )
     return
   }
 
@@ -246,6 +257,7 @@ async function createRun(
         cwd: context.cwd,
         mode: 'web',
         model: context.runtime.config.model.model,
+        workspaceId: workspace.id,
         firstUserMessage: userMessage
       })
       messages = [userMessage]
@@ -257,6 +269,10 @@ async function createRun(
       })
       if (loaded === null) {
         writeJson(response, 404, { error: 'Session not found.' })
+        return
+      }
+      if (!isSessionWorkspaceCompatible(loaded.session, workspace.id)) {
+        writeJson(response, 409, { error: 'Session workspace does not match requested workspace.' })
         return
       }
       await appendSessionEvent({
@@ -417,8 +433,12 @@ async function patchSession(
   let body: unknown
   try {
     body = JSON.parse(await readRequestBody(request))
-  } catch {
-    writeJson(response, 400, { error: 'Invalid JSON body.' })
+  } catch (error) {
+    writeJson(
+      response,
+      error instanceof RequestBodyTooLargeError ? 413 : 400,
+      { error: error instanceof RequestBodyTooLargeError ? 'Request body too large.' : 'Invalid JSON body.' }
+    )
     return
   }
 
@@ -618,6 +638,10 @@ function decodeWorkspaceId(value: string): string {
   return value === '@root' ? '' : decodeURIComponent(value)
 }
 
+function isSessionWorkspaceCompatible(session: SessionIndexItem, workspaceId: string): boolean {
+  return session.workspaceId === undefined ? workspaceId === '' : session.workspaceId === workspaceId
+}
+
 async function serveStaticFile(response: ServerResponse, relativePath: string): Promise<void> {
   const normalizedPath = normalize(relativePath).replace(/^(\.\.(\/|\\|$))+/, '')
   const filePath = resolve(staticDir, normalizedPath)
@@ -655,9 +679,35 @@ function contentTypeFor(filePath: string): string {
 function readRequestBody(request: IncomingMessage): Promise<string> {
   return new Promise((resolveBody, rejectBody) => {
     const chunks: Buffer[] = []
-    request.on('data', (chunk: Buffer) => chunks.push(chunk))
-    request.on('end', () => resolveBody(Buffer.concat(chunks).toString('utf8')))
-    request.on('error', rejectBody)
+    let totalBytes = 0
+    let settled = false
+    request.on('data', (chunk: Buffer) => {
+      if (settled) {
+        return
+      }
+      totalBytes += chunk.byteLength
+      if (totalBytes > MAX_REQUEST_BODY_BYTES) {
+        settled = true
+        rejectBody(new RequestBodyTooLargeError())
+        request.resume()
+        return
+      }
+      chunks.push(chunk)
+    })
+    request.on('end', () => {
+      if (settled) {
+        return
+      }
+      settled = true
+      resolveBody(Buffer.concat(chunks).toString('utf8'))
+    })
+    request.on('error', (error) => {
+      if (settled) {
+        return
+      }
+      settled = true
+      rejectBody(error)
+    })
   })
 }
 

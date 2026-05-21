@@ -13,6 +13,7 @@ import {
 import type { CallModelInput, ModelResponse } from '../src/llm-client.js'
 
 const tempDirs: string[] = []
+const originalTimeZone = process.env.TZ
 
 async function createTempDir(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), 'cc-local-daily-summary-'))
@@ -22,6 +23,7 @@ async function createTempDir(): Promise<string> {
 
 describe('daily summary filtering', () => {
   afterEach(async () => {
+    process.env.TZ = originalTimeZone
     await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })))
   })
 
@@ -50,6 +52,7 @@ describe('daily summary filtering', () => {
 
   it('appends one validated content summary for a memory-worthy turn', async () => {
     const root = await createTempDir()
+    process.env.TZ = 'Asia/Shanghai'
     await mkdir(join(root, '.cc-local', 'memory'), { recursive: true })
     const callModel = vi.fn(async (_input: CallModelInput): Promise<ModelResponse> => ({
       content: JSON.stringify({
@@ -65,13 +68,13 @@ describe('daily summary filtering', () => {
       userPrompt: '我希望 memory 记住内容，不要记录工具调用。',
       finalText: '已确认：daily.md 应保存内容摘要，普通工具调用跳过。',
       callModel,
-      now: new Date('2026-05-20T06:30:00Z')
+      now: new Date('2026-05-20T16:30:00Z')
     })
 
     expect(result).toBe(true)
     expect(callModel).toHaveBeenCalledTimes(1)
     await expect(readFile(join(root, '.cc-local', 'memory', 'daily.md'), 'utf8')).resolves.toBe(
-      '[2026-05-20 06:30] User prefers daily memory to store content summaries instead of tool-call logs.\n'
+      '[2026-05-21 00:30] User prefers daily memory to store content summaries instead of tool-call logs.\n'
     )
   })
 

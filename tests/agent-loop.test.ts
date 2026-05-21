@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { z } from 'zod'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { runAgentLoop } from '../src/agent-loop.js'
 import { createDefaultConfig } from '../src/config.js'
 import type { ChatMessage, ModelResponse } from '../src/llm-client.js'
@@ -33,6 +33,25 @@ const echoTool: Tool<{ text: string }> = {
   needsUserInteraction: false,
   async execute(args) {
     return { ok: true, content: args.text }
+  }
+}
+
+const askTool: Tool<{ question: string }> = {
+  name: 'ask_user',
+  description: 'Ask the user a question.',
+  parameters: {
+    type: 'object',
+    properties: { question: { type: 'string' } },
+    required: ['question'],
+    additionalProperties: false
+  },
+  schema: z.object({ question: z.string() }),
+  isReadonly: true,
+  isDestructive: false,
+  isConcurrencySafe: false,
+  needsUserInteraction: true,
+  async execute(args) {
+    return { ok: true, content: `Question for user: ${args.question}` }
   }
 }
 
@@ -74,6 +93,40 @@ describe('runAgentLoop', () => {
     })
 
     expect(result.finalText).toBe('final answer')
+  })
+
+  it('stops after a successful user-interaction tool call', async () => {
+    const maybeAppendDailySummary = vi.fn(async () => true)
+    let modelCalls = 0
+
+    const result = await runAgentLoop({
+      config: createDefaultConfig('/tmp/project'),
+      systemPrompt: 'system',
+      userPrompt: 'edit something',
+      tools: [askTool],
+      dailySummary: { maybeAppendDailySummary },
+      callModel: async (): Promise<ModelResponse> => {
+        modelCalls += 1
+        return {
+          content: '',
+          toolCalls: [
+            {
+              id: 'ask-1',
+              type: 'function',
+              function: {
+                name: 'ask_user',
+                arguments: JSON.stringify({ question: 'Which file should I edit?' })
+              }
+            }
+          ]
+        }
+      }
+    })
+
+    expect(result.finalText).toBe('Question for user: Which file should I edit?')
+    expect(result.toolCallCount).toBe(1)
+    expect(modelCalls).toBe(1)
+    expect(maybeAppendDailySummary).not.toHaveBeenCalled()
   })
 
   it('compacts history when token count exceeds threshold', async () => {

@@ -1,6 +1,7 @@
 import type { AppConfig } from './config.js'
 import { appendDaily } from './daily-logger.js'
 import type { CallModelInput, ModelResponse } from './llm-client.js'
+import { formatLocalDateTime } from './time.js'
 
 export interface DailySummaryPromptInput {
   userPrompt: string
@@ -172,14 +173,5 @@ export async function maybeAppendDailySummary(input: MaybeAppendDailySummaryInpu
 }
 
 function formatDailySummaryEntry(date: Date, summary: string): string {
-  return `[${formatDailyTime(date)}] ${summary.trim().replace(/\s+/g, ' ')}`
-}
-
-function formatDailyTime(date: Date): string {
-  const year = date.getUTCFullYear()
-  const month = String(date.getUTCMonth() + 1).padStart(2, '0')
-  const day = String(date.getUTCDate()).padStart(2, '0')
-  const hours = String(date.getUTCHours()).padStart(2, '0')
-  const minutes = String(date.getUTCMinutes()).padStart(2, '0')
-  return `${year}-${month}-${day} ${hours}:${minutes}`
+  return `[${formatLocalDateTime(date)}] ${summary.trim().replace(/\s+/g, ' ')}`
 }

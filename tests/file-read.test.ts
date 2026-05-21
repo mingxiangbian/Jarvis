@@ -1,4 +1,4 @@
-import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -46,6 +46,38 @@ describe('fileReadTool', () => {
 
     expect(result.ok).toBe(false)
     expect(result.content).toContain('Unable to read file')
+  })
+
+  it('refuses to read absolute paths outside readable roots', async () => {
+    const root = await createTempRoot()
+    const outside = await createTempRoot()
+    const outsideFile = join(outside, 'secret.txt')
+    await writeFile(outsideFile, 'do not read\n', 'utf8')
+
+    const result = await fileReadTool.execute(
+      { file_path: outsideFile },
+      { config: createDefaultConfig(root), trackedFiles: new Set<string>() }
+    )
+
+    expect(result.ok).toBe(false)
+    expect(result.content).toContain('outside readable roots')
+  })
+
+  it('refuses to read symlinks that resolve outside readable roots', async () => {
+    const root = await createTempRoot()
+    const outside = await createTempRoot()
+    const outsideFile = join(outside, 'secret.txt')
+    const link = join(root, 'secret-link.txt')
+    await writeFile(outsideFile, 'do not read\n', 'utf8')
+    await symlink(outsideFile, link)
+
+    const result = await fileReadTool.execute(
+      { file_path: link },
+      { config: createDefaultConfig(root), trackedFiles: new Set<string>() }
+    )
+
+    expect(result.ok).toBe(false)
+    expect(result.content).toContain('outside readable roots')
   })
 
   it('preserves original line numbers when compacting long files', async () => {

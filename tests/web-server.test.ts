@@ -58,6 +58,8 @@ describe('startWebServer', () => {
     expect(body).toContain('aria-controls="workspacePicker"')
     expect(body).toContain('id="workspacePicker"')
     expect(body).toContain('id="inspectorEdgeToggle"')
+    expect(body).toContain('id="contextUsageButton"')
+    expect(body).toContain('id="contextUsageValue"')
     expect(body).toContain('<button id="themeToggle" class="theme-toggle icon-button icon-only" type="button" aria-label="Switch to dark mode" title="Switch to dark mode"></button>')
     expect(body.indexOf('id="themeToggle"')).toBeLessThan(body.indexOf('id="inspectorEdgeToggle"'))
     expect(body).toContain('class="chat-actions"')
@@ -105,6 +107,7 @@ describe('startWebServer', () => {
     expect(body).toContain('.inspector.is-open')
     expect(body).toContain('.app-shell.sidebar-collapsed')
     expect(body).toContain('.chat-actions')
+    expect(body).toMatch(/\.chat-actions \{[^}]*gap: 10px/)
     expect(body).toContain('.app-shell.chat-not-started')
     expect(body).not.toContain('.app-shell.chat-not-started.inspector-open')
     expect(body).toContain('.app-shell.chat-not-started .chat-header')
@@ -117,6 +120,10 @@ describe('startWebServer', () => {
     expect(body).toContain('.workspace-change-button')
     expect(body).toContain('.workspace-picker')
     expect(body).toContain('.workspace-option')
+    expect(body).toContain('.context-usage-button')
+    expect(body).toContain('.context-usage-ring')
+    expect(body).toContain('.context-usage-button.show-value')
+    expect(body).toContain('conic-gradient')
     expect(body).toContain('.context-panel')
     expect(body).toContain('.markdown-file-select')
     expect(body).toContain('.markdown-preview')
@@ -159,6 +166,7 @@ describe('startWebServer', () => {
     expect(body).toMatch(/\.workspace-picker \{[\s\S]*position: absolute/)
     expect(body).toMatch(/\.session-menu \{[\s\S]*position: fixed/)
     expect(body).toMatch(/\.workspace-change-button \{[\s\S]*border-radius: 999px/)
+    expect(body).toMatch(/\.workspace-change-button \{[\s\S]*border: 1px solid rgba\(80, 103, 132, 0\.42\)/)
     expect(body).not.toContain('.sidebar-card')
     expect(body).not.toContain('.brand-avatar::after')
     expect(body).not.toContain('.avatar-cartoon::after')
@@ -335,6 +343,10 @@ describe('startWebServer', () => {
     expect(body).toContain('app-helpers.js')
     expect(body).toContain('renderMarkdownHtml')
     expect(body).toContain('ownsMarkdownFileResponse')
+    expect(body).toContain('contextUsagePercent')
+    expect(body).toContain('contextUsageButton')
+    expect(body).toContain('updateContextUsageIndicator')
+    expect(body).toContain("classList.toggle('show-value'")
     expect(body).toContain('session-history')
     expect(body).toContain('message-group assistant')
     expect(body).toContain('assistant-avatar avatar-cartoon')
@@ -360,6 +372,8 @@ describe('startWebServer', () => {
     expect(body).toContain('escapeHtml')
     expect(body).toContain('ownsMarkdownFilesResponse')
     expect(body).toContain('buildRunRequestBody')
+    expect(body).toContain('contextUsagePercent')
+    expect(body).toContain('estimateContextTokens')
   })
 
   it('rejects run creation without a user message', async () => {
@@ -373,6 +387,21 @@ describe('startWebServer', () => {
 
     expect(response.status).toBe(400)
     expect(await response.json()).toEqual({ error: 'At least one user message is required.' })
+  })
+
+  it('rejects oversized run request bodies without calling the model', async () => {
+    const callModel = vi.fn(async (): Promise<ModelResponse> => ({ content: 'unused', toolCalls: [] }))
+    const server = await startServer(callModel)
+
+    const response = await fetch(`${server.url}/api/runs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ message: 'x'.repeat(1_100_000) })
+    })
+
+    expect(response.status).toBe(413)
+    await expect(response.json()).resolves.toEqual({ error: 'Request body too large.' })
+    expect(callModel).not.toHaveBeenCalled()
   })
 
   it('creates a run and streams prior and final run events over SSE', async () => {
@@ -578,6 +607,57 @@ describe('startWebServer', () => {
         content: expect.stringContaining('# Project A')
       })
     ]))
+  })
+
+  it('persists selected workspace ids and rejects cross-workspace resume', async () => {
+    const cwd = await createTempCwd()
+    await mkdir(join(cwd, 'workspace', 'project-a'))
+    await mkdir(join(cwd, 'workspace', 'project-b'))
+    const callModel = vi.fn(async (): Promise<ModelResponse> => ({ content: 'workspace answer', toolCalls: [] }))
+    const server = await startWebServer({
+      cwd,
+      host: '127.0.0.1',
+      port: 0,
+      callModel
+    })
+    servers.push(server)
+
+    const createResponse = await fetch(`${server.url}/api/runs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ message: 'project A task', workspaceId: 'project-a' })
+    })
+    expect(createResponse.status).toBe(202)
+    const createBody = (await createResponse.json()) as { runId: string; sessionId: string }
+    await readRunEventStream(`${server.url}/api/runs/${createBody.runId}/events`)
+
+    const sessionResponse = await fetch(`${server.url}/api/sessions/${createBody.sessionId}`)
+    expect(sessionResponse.status).toBe(200)
+    await expect(sessionResponse.json()).resolves.toEqual({
+      session: expect.objectContaining({
+        id: createBody.sessionId,
+        workspaceId: 'project-a'
+      }),
+      messages: [
+        { role: 'user', content: 'project A task' },
+        { role: 'assistant', content: 'workspace answer' }
+      ]
+    })
+
+    const resumeResponse = await fetch(`${server.url}/api/runs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        sessionId: createBody.sessionId,
+        message: 'continue from B',
+        workspaceId: 'project-b'
+      })
+    })
+    const resumeBody = (await resumeResponse.json()) as { error: string }
+
+    expect(resumeResponse.status).toBe(409)
+    expect(resumeBody.error).toContain('Session workspace does not match requested workspace.')
+    expect(callModel).toHaveBeenCalledTimes(1)
   })
 
   it('rejects invalid run workspace ids without calling the model', async () => {
@@ -878,6 +958,14 @@ describe('startWebServer', () => {
     })
     expect(invalidPinnedResponse.status).toBe(400)
     await expect(invalidPinnedResponse.json()).resolves.toEqual({ error: 'pinned must be a boolean.' })
+
+    const oversizedResponse = await fetch(`${server.url}/api/sessions/missing`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ pinned: true, filler: 'x'.repeat(1_100_000) })
+    })
+    expect(oversizedResponse.status).toBe(413)
+    await expect(oversizedResponse.json()).resolves.toEqual({ error: 'Request body too large.' })
 
     const missingResponse = await fetch(`${server.url}/api/sessions/missing`, {
       method: 'PATCH',
