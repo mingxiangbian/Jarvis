@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -940,6 +940,34 @@ describe('startWebServer', () => {
     const unsafeDeleteResponse = await fetch(`${server.url}/api/sessions/..%2Foutside`, { method: 'DELETE' })
     expect(unsafeDeleteResponse.status).toBe(400)
     await expect(unsafeDeleteResponse.json()).resolves.toEqual({ error: 'Invalid session id.' })
+  })
+
+  it('returns a controlled error when deleting a symlinked session file', async () => {
+    const cwd = await createTempCwd()
+    const server = await startWebServer({
+      cwd,
+      host: '127.0.0.1',
+      port: 0,
+      callModel: async (): Promise<ModelResponse> => ({ content: 'symlink answer', toolCalls: [] })
+    })
+    servers.push(server)
+
+    const createResponse = await fetch(`${server.url}/api/runs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ message: 'delete symlink through api' })
+    })
+    expect(createResponse.status).toBe(202)
+    const createBody = (await createResponse.json()) as { runId: string; sessionId: string }
+    await readRunEventStream(`${server.url}/api/runs/${createBody.runId}/events`)
+
+    const sessionPath = join(cwd, '.cc-local', 'sessions', `${createBody.sessionId}.jsonl`)
+    await rm(sessionPath)
+    await symlink(tmpdir(), sessionPath)
+
+    const deleteResponse = await fetch(`${server.url}/api/sessions/${createBody.sessionId}`, { method: 'DELETE' })
+    expect(deleteResponse.status).toBe(409)
+    await expect(deleteResponse.json()).resolves.toEqual({ error: 'Session storage is invalid.' })
   })
 
   it('rejects client-supplied assistant messages', async () => {

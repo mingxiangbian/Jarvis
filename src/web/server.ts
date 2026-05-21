@@ -466,6 +466,10 @@ async function deleteSessionRoute(
       writeJson(response, 400, { error: 'Invalid session id.' })
       return
     }
+    if (isUnsafeSessionStorageError(error)) {
+      writeJson(response, 409, { error: 'Session storage is invalid.' })
+      return
+    }
     throw error
   }
 
@@ -668,4 +672,8 @@ function isObject(value: unknown): value is Record<string, unknown> {
 
 function isUnsafeSessionError(error: unknown): boolean {
   return error instanceof Error && error.message.startsWith('Unsafe session id:')
+}
+
+function isUnsafeSessionStorageError(error: unknown): boolean {
+  return error instanceof Error && error.message.startsWith('Session path must not be a symlink:')
 }
