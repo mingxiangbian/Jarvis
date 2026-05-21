@@ -585,6 +585,10 @@ function renderSessionList() {
     row.append(button)
 
     if (session.id === state.sessionId) {
+      if (session.pinned) {
+        row.append(renderSessionPinIndicator())
+      }
+
       const menuButton = document.createElement('button')
       menuButton.className = 'session-menu-button'
       menuButton.type = 'button'
@@ -609,8 +613,21 @@ function renderSessionList() {
       }
     }
 
+    if (session.id !== state.sessionId && session.pinned) {
+      row.append(renderSessionPinIndicator())
+    }
+
     sessionHistory.append(row)
   }
+}
+
+function renderSessionPinIndicator() {
+  const indicator = document.createElement('span')
+  indicator.className = 'session-pin-indicator'
+  indicator.setAttribute('role', 'img')
+  indicator.setAttribute('aria-label', 'Pinned chat')
+  indicator.append(createIcon('pin'))
+  return indicator
 }
 
 function renderSessionMenu(session) {
