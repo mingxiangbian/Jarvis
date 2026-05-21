@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import {
   buildRunRequestBody,
@@ -12,6 +13,15 @@ import {
 } from '../src/web/static/app-helpers.js'
 
 describe('web static helpers', () => {
+  it('keeps long user messages fully expanded inside the chat bubble', () => {
+    const css = readFileSync(new URL('../src/web/static/styles.css', import.meta.url), 'utf8')
+
+    expect(css).toMatch(/\.message\s*\{[\s\S]*?align-items:\s*flex-start;/)
+    expect(css).toMatch(/\.message-content\s*\{[\s\S]*?display:\s*block;/)
+    expect(css).toMatch(/\.message-content\s*\{[\s\S]*?min-width:\s*0;/)
+    expect(css).toMatch(/\.message-content\s*\{[\s\S]*?word-break:\s*break-word;/)
+  })
+
   it('escapes Markdown preview content while rendering supported blocks', () => {
     const html = renderMarkdownHtml([
       '# <img src=x onerror=alert(1)>',

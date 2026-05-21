@@ -744,7 +744,7 @@ button:disabled {
 
 .message {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   max-width: min(760px, 86%);
   min-height: 52px;
   padding: 14px 16px;
@@ -756,8 +756,11 @@ button:disabled {
 }
 
 .message-content {
+  display: block;
+  min-width: 0;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .message.user {
