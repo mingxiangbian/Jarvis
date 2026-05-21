@@ -2,6 +2,7 @@
 
 # Local Python/Node environments
 .venv/
+.venv-t2i/
 node_modules/
 dist/
 coverage/

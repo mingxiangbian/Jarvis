@@ -20,3 +20,16 @@ describe('server/start.sh', () => {
     expect(script).toContain('--port "${PORT}"')
   })
 })
+
+describe('server/start-t2i.sh', () => {
+  it('uses an isolated T2I virtualenv and worker script', async () => {
+    const script = await readFile('server/start-t2i.sh', 'utf8')
+
+    expect(script).toContain('.venv-t2i')
+    expect(script).toContain('requirements-t2i.txt')
+    expect(script).toContain('scripts/t2i-worker.py')
+    expect(script).toContain('T2I_MODEL_PATH')
+    expect(script).toContain('majicmixRealistic_v7.safetensors')
+    expect(script).not.toContain('PYTHON="${PYTHON:-${ROOT_DIR}/.venv/bin/python}"')
+  })
+})
