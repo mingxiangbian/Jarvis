@@ -34,6 +34,7 @@ const state = {
   sessionId: null,
   sessions: [],
   openSessionMenuId: null,
+  sessionMenuPosition: null,
   messages: [],
   activeRun: null,
   isSending: false,
@@ -87,12 +88,10 @@ themeToggle?.addEventListener('click', () => {
   setTheme(nextTheme)
 })
 document.addEventListener('click', () => {
-  if (state.openSessionMenuId === null) {
-    return
-  }
-  state.openSessionMenuId = null
-  renderSessionList()
+  closeSessionMenu()
 })
+sessionHistory?.addEventListener('scroll', () => closeSessionMenu())
+window.addEventListener('resize', () => closeSessionMenu())
 workspaceChangeButton?.addEventListener('click', () => {
   if (isWorkspaceLocked()) {
     return
@@ -109,7 +108,7 @@ function resetChat() {
     return
   }
   state.sessionId = null
-  state.openSessionMenuId = null
+  closeSessionMenu(false)
   state.messages = []
   state.tools = []
   updateChatTitle('Untitled session')
@@ -169,7 +168,7 @@ async function sendPrompt() {
     return
   }
 
-  state.openSessionMenuId = null
+  closeSessionMenu(false)
   clearEmptyState()
   appendMessage('user', content)
   state.messages.push({ role: 'user', content })
@@ -352,7 +351,7 @@ async function loadSessions() {
   const body = await response.json()
   state.sessions = Array.isArray(body.sessions) ? body.sessions : []
   if (state.openSessionMenuId !== null && !state.sessions.some((session) => session.id === state.openSessionMenuId)) {
-    state.openSessionMenuId = null
+    closeSessionMenu(false)
   }
   renderSessionList()
   const current = state.sessions.find((session) => session.id === state.sessionId)
@@ -533,7 +532,7 @@ async function loadSession(sessionId) {
   if (isRunLocked() || sessionId === state.sessionId) {
     return
   }
-  state.openSessionMenuId = null
+  closeSessionMenu(false)
   const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`)
   if (!response.ok) {
     return
@@ -595,7 +594,12 @@ function renderSessionList() {
       menuButton.append(createIcon('dots'))
       menuButton.addEventListener('click', (event) => {
         event.stopPropagation()
-        state.openSessionMenuId = state.openSessionMenuId === session.id ? null : session.id
+        if (state.openSessionMenuId === session.id) {
+          closeSessionMenu(false)
+        } else {
+          state.openSessionMenuId = session.id
+          state.sessionMenuPosition = getSessionMenuPosition(menuButton)
+        }
         renderSessionList()
       })
       row.append(menuButton)
@@ -612,6 +616,10 @@ function renderSessionList() {
 function renderSessionMenu(session) {
   const menu = document.createElement('div')
   menu.className = 'session-menu'
+  if (state.sessionMenuPosition) {
+    menu.style.top = `${state.sessionMenuPosition.top}px`
+    menu.style.left = `${state.sessionMenuPosition.left}px`
+  }
   menu.addEventListener('click', (event) => {
     event.stopPropagation()
   })
@@ -638,11 +646,38 @@ function renderSessionMenu(session) {
   return menu
 }
 
+function closeSessionMenu(shouldRender = true) {
+  if (state.openSessionMenuId === null && state.sessionMenuPosition === null) {
+    return
+  }
+  state.openSessionMenuId = null
+  state.sessionMenuPosition = null
+  if (shouldRender) {
+    renderSessionList()
+  }
+}
+
+function getSessionMenuPosition(anchor) {
+  const rect = anchor.getBoundingClientRect()
+  const menuWidth = 150
+  const menuHeight = 96
+  const gap = 6
+  const margin = 12
+  const rightLimit = Math.max(margin, window.innerWidth - menuWidth - margin)
+  const below = rect.bottom + gap
+  const above = rect.top - menuHeight - gap
+  const top = below + menuHeight <= window.innerHeight - margin ? below : Math.max(margin, above)
+  return {
+    top,
+    left: Math.min(Math.max(margin, rect.right - menuWidth), rightLimit)
+  }
+}
+
 async function toggleSessionPinned(session) {
   if (isRunLocked()) {
     return
   }
-  state.openSessionMenuId = null
+  closeSessionMenu(false)
   let response
   try {
     response = await fetch(`/api/sessions/${encodeURIComponent(session.id)}`, {
@@ -651,7 +686,7 @@ async function toggleSessionPinned(session) {
       body: JSON.stringify({ pinned: !session.pinned })
     })
   } catch {
-    state.openSessionMenuId = null
+    closeSessionMenu(false)
     renderSessionList()
     return
   }
@@ -659,7 +694,7 @@ async function toggleSessionPinned(session) {
     await loadSessions()
     return
   }
-  state.openSessionMenuId = null
+  closeSessionMenu(false)
   renderSessionList()
 }
 
@@ -672,17 +707,17 @@ async function deleteSession(sessionId) {
   if (!window.confirm(`Delete "${title}"?`)) {
     return
   }
-  state.openSessionMenuId = null
+  closeSessionMenu(false)
   let response
   try {
     response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE' })
   } catch {
-    state.openSessionMenuId = null
+    closeSessionMenu(false)
     renderSessionList()
     return
   }
   if (!response.ok) {
-    state.openSessionMenuId = null
+    closeSessionMenu(false)
     renderSessionList()
     return
   }
@@ -971,7 +1006,7 @@ function renderNote(text) {
 function setSending(isSending) {
   state.isSending = isSending
   if (isSending) {
-    state.openSessionMenuId = null
+    closeSessionMenu(false)
   }
   if (sendButton) {
     sendButton.disabled = isSending

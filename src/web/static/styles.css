@@ -271,16 +271,18 @@ button {
 
 .session-row {
   display: grid;
-  gap: 3px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  position: relative;
   width: 100%;
   min-width: 0;
-  padding: 10px 11px;
+  padding: 4px;
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
   color: var(--ink);
   text-align: left;
   background: transparent;
-  cursor: pointer;
 }
 
 .session-row:hover,
@@ -290,8 +292,19 @@ button {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72), 0 9px 18px rgba(119, 139, 165, 0.1);
 }
 
-.session-title,
-.session-preview {
+.session-title-button {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  padding: 7px;
+  border-radius: 10px;
+  color: var(--ink);
+  text-align: left;
+  background: transparent;
+  cursor: pointer;
+}
+
+.session-title {
   display: block;
   min-width: 0;
   overflow: hidden;
@@ -304,10 +317,72 @@ button {
   font-weight: 700;
 }
 
-.session-preview,
 .session-history-empty {
   color: var(--muted);
   font-size: 12px;
+}
+
+.session-menu-wrap {
+  position: relative;
+  display: grid;
+  place-items: center;
+}
+
+.session-menu-button {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  border-radius: 999px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  place-items: center;
+}
+
+.session-menu {
+  position: fixed;
+  z-index: 5;
+  display: grid;
+  gap: 4px;
+  width: 150px;
+  min-width: 146px;
+  padding: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.74);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 18px 40px rgba(106, 126, 150, 0.18);
+  backdrop-filter: blur(18px) saturate(150%);
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+}
+
+.session-action {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: 12px;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 700;
+  text-align: left;
+  background: transparent;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.session-action:hover {
+  background: rgba(174, 239, 255, 0.28);
+}
+
+.session-action.danger {
+  color: #a42d52;
+}
+
+.session-action.danger:hover {
+  background: rgba(247, 168, 207, 0.22);
 }
 
 .session-history-empty {
@@ -498,8 +573,24 @@ body.is-resizing-left .left-resize-handle {
   text-decoration: none;
 }
 
+.rail-avatar-button {
+  overflow: hidden;
+  padding: 0;
+}
+
+.rail-avatar-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
 .rail-button.is-active {
   background: linear-gradient(135deg, rgba(247, 168, 207, 0.38), rgba(174, 239, 255, 0.44));
+}
+
+.theme-toggle {
+  color: #7b6bd6;
 }
 
 .run-status-row {
@@ -895,6 +986,193 @@ button:disabled {
   margin-top: 10px;
   color: #788399;
   font-size: 12px;
+}
+
+body.theme-dark {
+  --fog: #0f1430;
+  --ice: #151b3e;
+  --ink: #e9e6f7;
+  --muted: #b4b7d4;
+  --line: rgba(194, 203, 255, 0.2);
+  --dark-panel: rgba(18, 23, 54, 0.78);
+  --panel: var(--dark-panel);
+  --panel-strong: rgba(29, 34, 76, 0.78);
+  --shadow: 0 24px 70px rgba(3, 8, 28, 0.38);
+  --soft-shadow: 10px 14px 36px rgba(4, 8, 28, 0.24), -10px -12px 30px rgba(142, 169, 255, 0.08);
+  color: var(--ink);
+  background:
+    radial-gradient(circle at 16% 11%, rgba(247, 168, 207, 0.24), transparent 34%),
+    radial-gradient(circle at 82% 18%, rgba(93, 220, 255, 0.22), transparent 36%),
+    radial-gradient(circle at 48% 98%, rgba(203, 189, 255, 0.24), transparent 34%),
+    linear-gradient(135deg, #0b1230 0%, #15113b 48%, #21163f 100%);
+}
+
+body.theme-dark .ambient {
+  opacity: 0.28;
+}
+
+body.theme-dark .prism-light {
+  background:
+    linear-gradient(112deg, transparent 12%, rgba(174, 239, 255, 0.18) 30%, rgba(247, 168, 207, 0.12) 47%, transparent 64%),
+    radial-gradient(circle at 58% 30%, rgba(203, 189, 255, 0.2), transparent 20%);
+  opacity: 0.82;
+}
+
+body.theme-dark .glass-panel {
+  border-color: rgba(203, 189, 255, 0.22);
+  background: var(--panel);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
+body.theme-dark .brand-avatar,
+body.theme-dark .assistant-avatar,
+body.theme-dark .icon-button,
+body.theme-dark .tab,
+body.theme-dark .rail-button,
+body.theme-dark .inspector-edge-toggle,
+body.theme-dark .workspace-change-button,
+body.theme-dark .workspace-picker,
+body.theme-dark .markdown-file-select,
+body.theme-dark .markdown-preview,
+body.theme-dark .tool-card {
+  border-color: rgba(203, 189, 255, 0.2);
+  background: rgba(24, 31, 69, 0.68);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 12px 28px rgba(2, 7, 24, 0.22);
+}
+
+body.theme-dark .brand p,
+body.theme-dark .empty-state p,
+body.theme-dark .muted,
+body.theme-dark .session-history-empty,
+body.theme-dark .run-status-row,
+body.theme-dark .message-identity,
+body.theme-dark .tool-card p,
+body.theme-dark .tool-meta {
+  color: var(--muted);
+}
+
+body.theme-dark .eyebrow {
+  color: #c8b8ef;
+}
+
+body.theme-dark .nav-item,
+body.theme-dark .nav-action,
+body.theme-dark .session-row,
+body.theme-dark .session-title-button,
+body.theme-dark .workspace-change-button,
+body.theme-dark .workspace-option,
+body.theme-dark .icon-button,
+body.theme-dark .tab,
+body.theme-dark .rail-button,
+body.theme-dark .inspector-edge-toggle,
+body.theme-dark .markdown-file-select,
+body.theme-dark #promptInput {
+  color: var(--ink);
+}
+
+body.theme-dark .nav-action,
+body.theme-dark .send-button,
+body.theme-dark .rail-button.is-active,
+body.theme-dark .tab.is-active {
+  background: linear-gradient(135deg, rgba(247, 168, 207, 0.34), rgba(93, 220, 255, 0.25), rgba(203, 189, 255, 0.28));
+}
+
+body.theme-dark .nav-item.is-active,
+body.theme-dark .nav-item:hover,
+body.theme-dark .nav-action:hover,
+body.theme-dark .workspace-change-button:hover,
+body.theme-dark .workspace-option:hover,
+body.theme-dark .workspace-option.is-active,
+body.theme-dark .session-row:hover,
+body.theme-dark .session-row.is-active {
+  border-color: rgba(203, 189, 255, 0.28);
+  background: rgba(38, 45, 92, 0.68);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 12px 26px rgba(3, 8, 28, 0.2);
+}
+
+body.theme-dark .session-menu-button {
+  color: #d6cdf8;
+  background: rgba(28, 35, 76, 0.76);
+}
+
+body.theme-dark .session-menu {
+  border-color: rgba(203, 189, 255, 0.24);
+  background: rgba(19, 25, 58, 0.94);
+  box-shadow: 0 20px 44px rgba(3, 8, 28, 0.36);
+}
+
+body.theme-dark .session-action {
+  color: var(--ink);
+}
+
+body.theme-dark .session-action:hover {
+  background: rgba(93, 220, 255, 0.16);
+}
+
+body.theme-dark .session-action.danger {
+  color: #ffabc5;
+}
+
+body.theme-dark .session-action.danger:hover {
+  background: rgba(247, 168, 207, 0.16);
+}
+
+body.theme-dark .composer {
+  border-color: rgba(174, 239, 255, 0.18);
+  background: rgba(18, 24, 58, 0.74);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
+body.theme-dark .composer:focus-within {
+  border-color: rgba(93, 220, 255, 0.46);
+  background: rgba(22, 29, 68, 0.84);
+}
+
+body.theme-dark #promptInput::placeholder {
+  color: rgba(217, 218, 242, 0.58);
+}
+
+body.theme-dark .message {
+  border-color: rgba(203, 189, 255, 0.18);
+  background: var(--panel-strong);
+  box-shadow: 0 12px 30px rgba(3, 8, 28, 0.24);
+}
+
+body.theme-dark .message.user {
+  background: linear-gradient(135deg, rgba(247, 168, 207, 0.2), rgba(93, 220, 255, 0.15));
+}
+
+body.theme-dark .message.assistant {
+  background: rgba(25, 32, 72, 0.82);
+}
+
+body.theme-dark .message.status {
+  color: #d6d7ef;
+  background: rgba(32, 39, 82, 0.72);
+}
+
+body.theme-dark .message.error {
+  border-color: rgba(255, 171, 197, 0.32);
+  color: #ffd5e1;
+  background: rgba(96, 28, 62, 0.46);
+}
+
+body.theme-dark .markdown-preview pre {
+  background: rgba(6, 11, 32, 0.48);
+}
+
+body.theme-dark .send-button {
+  color: #111833;
+  box-shadow: 0 10px 22px rgba(4, 10, 30, 0.28);
+}
+
+body.theme-dark .theme-toggle {
+  color: var(--warm);
+}
+
+body.theme-dark .left-resize-handle:hover,
+body.theme-dark.is-resizing-left .left-resize-handle {
+  background: linear-gradient(180deg, transparent, rgba(247, 168, 207, 0.34), rgba(93, 220, 255, 0.36), transparent);
 }
 
 @keyframes statusFlow {
