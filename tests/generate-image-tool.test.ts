@@ -307,6 +307,50 @@ describe('generateImageTool', () => {
     ]))
   })
 
+  it('forces explicit Dynamic Thresholding overrides back to safe values by default', async () => {
+    const root = await tempRoot()
+    const imagePath = join(root, 'generated-images', 'safe-dynthres.png')
+    const fetchMock = vi.fn(async (_url: string, _init: RequestInit) =>
+      mockJsonResponse({
+        model: 'majicmixRealistic_v7',
+        images: [{
+          path: imagePath,
+          seed: 123,
+          width: 1024,
+          height: 1536,
+          dynamic_thresholding: true,
+          dynamic_thresholding_mimic_scale: 7,
+          dynamic_thresholding_percentile: 0.995
+        }]
+      })
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await generateImageTool.execute(
+      {
+        prompt: 'portrait photo',
+        dynamic_thresholding: false,
+        dynamic_thresholding_mimic_scale: 12,
+        dynamic_thresholding_percentile: 0.99
+      },
+      { config: config(root), trackedFiles: new Set<string>() }
+    )
+
+    const sent = JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body))
+    expect(result.ok).toBe(true)
+    expect(sent).toMatchObject({
+      safe_preset: true,
+      dynamic_thresholding: true,
+      dynamic_thresholding_mimic_scale: 7,
+      dynamic_thresholding_percentile: 0.995
+    })
+    expect(result.metadata?.preset_adjustments).toEqual(expect.arrayContaining([
+      expect.objectContaining({ field: 'dynamic_thresholding', from: false, to: true }),
+      expect.objectContaining({ field: 'dynamic_thresholding_mimic_scale', from: 12, to: 7 }),
+      expect.objectContaining({ field: 'dynamic_thresholding_percentile', from: 0.99, to: 0.995 })
+    ]))
+  })
+
   it('preserves explicit generation values when safe_preset is false', async () => {
     const root = await tempRoot()
     const fetchMock = vi.fn(async (_url: string, _init: RequestInit) =>
