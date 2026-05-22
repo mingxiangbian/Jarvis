@@ -372,6 +372,14 @@ def pipe_supports_step_end_callback(pipe: Any) -> bool:
     )
 
 
+def is_unsupported_clip_skip_error(error: TypeError) -> bool:
+    message = str(error)
+    return (
+        "unexpected keyword argument 'clip_skip'" in message
+        or 'unexpected keyword argument "clip_skip"' in message
+    )
+
+
 def dynamic_threshold_latents(
     torch_module: Any,
     latents: Any,
@@ -919,7 +927,7 @@ def generate_images(state: WorkerState, request: dict[str, Any]) -> list[dict[st
         try:
             result = state.pipe(**kwargs)
         except TypeError as exc:
-            if "clip_skip" not in str(exc):
+            if not is_unsupported_clip_skip_error(exc):
                 raise
             kwargs.pop("clip_skip")
             result = state.pipe(**kwargs)

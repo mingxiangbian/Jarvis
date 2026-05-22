@@ -733,6 +733,72 @@ print(json.dumps(calls))
     ])
   })
 
+  pillowAndTorchIt('does not retry when clip_skip appears in an internal TypeError', () => {
+    const output = runWorkerSnippet(`${importWorker}
+import json
+import tempfile
+import torch
+from types import SimpleNamespace
+from PIL import Image
+
+calls = 0
+
+class FakeGenerator:
+    def __init__(self, device):
+        self.device = device
+
+    def manual_seed(self, seed):
+        return self
+
+class FakeTorch:
+    Generator = FakeGenerator
+    quantile = staticmethod(torch.quantile)
+    maximum = staticmethod(torch.maximum)
+    ones_like = staticmethod(torch.ones_like)
+
+class FakePipe:
+    device = "cpu"
+
+    def __call__(
+        self,
+        *,
+        callback_on_step_end=None,
+        callback_on_step_end_tensor_inputs=None,
+        **kwargs,
+    ):
+        global calls
+        calls += 1
+        if calls == 1:
+            raise TypeError("internal callback failed while clip_skip=2 was active")
+        return SimpleNamespace(images=[Image.new("RGB", (kwargs["width"], kwargs["height"]), "white")])
+
+with tempfile.TemporaryDirectory() as output_dir:
+    request, error = worker.validate_payload({
+        "prompt": "portrait",
+        "output_dir": output_dir,
+        "width": 16,
+        "height": 16,
+        "steps": 2,
+        "cfg_scale": 12,
+        "seed": 123,
+        "dynamic_thresholding": True,
+    })
+    assert error is None
+    try:
+        worker.generate_images(worker.WorkerState("model.safetensors", FakePipe(), FakeTorch()), request)
+        raised = None
+    except TypeError as exc:
+        raised = str(exc)
+
+print(json.dumps({"calls": calls, "raised": raised}))
+`)
+
+    expect(JSON.parse(output)).toEqual({
+      calls: 1,
+      raised: 'internal callback failed while clip_skip=2 was active'
+    })
+  })
+
   pillowIt('applies hires fix with expected img2img arguments using fake pipeline and torch', () => {
     const output = runWorkerSnippet(`${importWorker}
 import json
