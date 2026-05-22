@@ -122,7 +122,10 @@ const workerResponseSchema = z.object({
     eye_regions: z.number().int().nonnegative().optional(),
     detail_enhanced: z.boolean().optional(),
     detail_regions: z.number().int().nonnegative().optional(),
-    detail_targets: z.array(z.string()).optional()
+    detail_targets: z.array(z.string()).optional(),
+    dynamic_thresholding: z.boolean().optional(),
+    dynamic_thresholding_mimic_scale: z.number().optional(),
+    dynamic_thresholding_percentile: z.number().optional()
   })).nonempty()
 })
 
@@ -471,6 +474,9 @@ export const generateImageTool: Tool<GenerateImageArgs> = {
       }
       if (image.detail_targets !== undefined && image.detail_targets.length > 0) {
         lines.push(`   targets: ${image.detail_targets.join(', ')}`)
+      }
+      if (image.dynamic_thresholding !== undefined) {
+        lines.push(`   dynamic thresholding: ${image.dynamic_thresholding ? 'enabled' : 'disabled'}`)
       }
       return lines
     })

@@ -197,9 +197,15 @@ describe('generateImageTool', () => {
     expect(result.content).toContain('size: 1024x1536')
     expect(result.content).toContain('preset: m3_16gb_safe')
     expect(result.content).toContain('dynamic thresholding: enabled')
+    expect(result.content).toContain('   dynamic thresholding: enabled')
     expect(result.metadata).toMatchObject({
       model: 'majicmixRealistic_v7',
       preset: 'm3_16gb_safe',
+      images: [{
+        dynamic_thresholding: true,
+        dynamic_thresholding_mimic_scale: 7,
+        dynamic_thresholding_percentile: 0.995
+      }],
       dynamic_thresholding: {
         enabled: true,
         mimic_scale: 7,
