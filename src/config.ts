@@ -1,5 +1,6 @@
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, isAbsolute, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 export interface ModelConfig {
   baseUrl: string
@@ -61,7 +62,21 @@ function parsePositiveIntEnv(value: string | undefined, defaultValue: number): n
   return Number.isFinite(parsed) && parsed > 0 ? parsed : defaultValue
 }
 
+const appRoot = dirname(dirname(fileURLToPath(import.meta.url)))
+
+function resolveStartCommand(command: string): string {
+  if (isAbsolute(command)) {
+    return command
+  }
+  if (command.startsWith('./') || command.startsWith('../')) {
+    return resolve(appRoot, command)
+  }
+  return command
+}
+
 export function createDefaultConfig(cwd: string): AppConfig {
+  const t2iStartCommand = process.env.T2I_START_COMMAND ?? './server/start-t2i.sh'
+
   return {
     cwd,
     model: {
@@ -73,7 +88,7 @@ export function createDefaultConfig(cwd: string): AppConfig {
       baseUrl: process.env.T2I_BASE_URL ?? 'http://127.0.0.1:7861',
       outputDir: process.env.T2I_OUTPUT_DIR ?? 'generated-images',
       autoStart: parseBooleanEnv(process.env.T2I_AUTO_START, true),
-      startCommand: process.env.T2I_START_COMMAND ?? './server/start-t2i.sh',
+      startCommand: resolveStartCommand(t2iStartCommand),
       startTimeoutMs: parsePositiveIntEnv(process.env.T2I_START_TIMEOUT_MS, 120_000),
       generateTimeoutMs: parsePositiveIntEnv(process.env.T2I_GENERATE_TIMEOUT_MS, 900_000)
     },

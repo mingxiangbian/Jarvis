@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { isAbsolute, join } from 'node:path'
 import { createDefaultConfig } from '../src/config.js'
 
 describe('createDefaultConfig', () => {
@@ -22,7 +22,8 @@ describe('createDefaultConfig', () => {
     expect(config.t2i.baseUrl).toBe('http://127.0.0.1:7861')
     expect(config.t2i.outputDir).toBe('generated-images')
     expect(config.t2i.autoStart).toBe(true)
-    expect(config.t2i.startCommand).toBe('./server/start-t2i.sh')
+    expect(isAbsolute(config.t2i.startCommand)).toBe(true)
+    expect(config.t2i.startCommand.endsWith('/server/start-t2i.sh')).toBe(true)
     expect(config.t2i.startTimeoutMs).toBe(120_000)
     expect(config.t2i.generateTimeoutMs).toBe(900_000)
   })
@@ -40,7 +41,8 @@ describe('createDefaultConfig', () => {
     expect(config.t2i.baseUrl).toBe('http://127.0.0.1:9998')
     expect(config.t2i.outputDir).toBe('custom-images')
     expect(config.t2i.autoStart).toBe(false)
-    expect(config.t2i.startCommand).toBe('./custom-t2i.sh')
+    expect(isAbsolute(config.t2i.startCommand)).toBe(true)
+    expect(config.t2i.startCommand.endsWith('/custom-t2i.sh')).toBe(true)
     expect(config.t2i.startTimeoutMs).toBe(45_000)
     expect(config.t2i.generateTimeoutMs).toBe(60_000)
   })
