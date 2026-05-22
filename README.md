@@ -113,10 +113,16 @@ The `generate_image` tool supports:
 
 - base text-to-image parameters: `prompt`, `negative_prompt`, `width`, `height`, `steps`, `cfg_scale`, `seed`, `count`
 - realism defaults with `realism_preset`
+- M3-safe defaults with `safe_preset` enabled by default
+- Dynamic Thresholding-style CFG control with `dynamic_thresholding`, `dynamic_thresholding_mimic_scale`, and `dynamic_thresholding_percentile`
 - Hires-style upscaling with `hires_fix`, `hires_scale`, `hires_steps`, `hires_denoise`
 - ADetailer-style local refinement with `detail_enhance`, `detail_targets`, `detail_strength`
 - eye-area refinement with `eye_refine`, `eye_refine_strength`, `eye_refine_steps`
 - lightweight BMAB-like postprocess with `bmab_postprocess`, `bmab_noise_alpha`, `bmab_contrast`, `bmab_brightness`, `bmab_color_temperature`
+
+By default, `safe_preset` applies an M3 16 GB profile: 512x768 base generation, one image, 20 steps, CFG 7, hires 2x with 15 img2img steps, low denoise, face/eye refinement, BMAB-like postprocess, and Dynamic Thresholding metadata. Set `safe_preset` to `false` when you intentionally want manual dimensions, counts, CFG, or experimental settings.
+
+The current hires path does not require ESRGAN, UltraSharp, or NMKD `.pth` upscaler weights. It uses deterministic local resizing followed by low-denoise img2img refinement. Real local upscaler weights should be added through a separate design once a specific weight file and dependency path are selected.
 
 For realistic portraits, a conservative starting point is:
 
