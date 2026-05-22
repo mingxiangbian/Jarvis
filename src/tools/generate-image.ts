@@ -166,6 +166,21 @@ type GenerateImageRequest = {
   seed?: number
 }
 
+type T2IDetectorHealth = {
+  configured?: boolean
+  exists?: boolean
+  path?: string
+}
+
+type T2IWorkerHealth = {
+  ok?: boolean
+  model?: string
+  detail_dependency?: {
+    available?: boolean
+  }
+  detectors?: Record<string, T2IDetectorHealth>
+}
+
 function isUnderRoot(path: string, root: string): boolean {
   const relativePath = relative(root, path)
   return relativePath === '' || (!relativePath.startsWith('..') && !isAbsolute(relativePath))
@@ -303,15 +318,27 @@ function healthEndpoint(baseUrl: string): string {
   return workerEndpoint(baseUrl, '/health')
 }
 
-async function isWorkerHealthy(baseUrl: string): Promise<boolean> {
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+async function readWorkerHealth(baseUrl: string): Promise<T2IWorkerHealth | null> {
   try {
     const response = await fetch(healthEndpoint(baseUrl), {
       method: 'GET',
       signal: AbortSignal.timeout(T2I_HEALTH_TIMEOUT_MS)
     })
-    return response.ok
+    if (!response.ok) {
+      return null
+    }
+    try {
+      const body: unknown = await response.json()
+      return isRecord(body) ? body as T2IWorkerHealth : { ok: true }
+    } catch {
+      return { ok: true }
+    }
   } catch {
-    return false
+    return null
   }
 }
 
@@ -342,24 +369,45 @@ function t2iStartEnv(baseUrl: string): NodeJS.ProcessEnv {
 
 type ManagedT2IWorker = {
   process: ChildProcess
+  diagnostics: string[]
+}
+
+function appendWorkerDiagnostic(diagnostics: string[], chunk: unknown): void {
+  const text = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk)
+  if (text.trim() === '') {
+    return
+  }
+  diagnostics.push(text)
+  const joined = diagnostics.join('')
+  if (joined.length > 4_000) {
+    diagnostics.splice(0, diagnostics.length, joined.slice(-4_000))
+  }
 }
 
 function startT2IWorker(config: ToolContext['config']): ManagedT2IWorker {
+  const diagnostics: string[] = []
   const child = spawn(config.t2i.startCommand, {
     cwd: config.cwd,
     detached: true,
     env: t2iStartEnv(config.t2i.baseUrl),
     shell: true,
-    stdio: 'ignore'
+    stdio: ['ignore', 'pipe', 'pipe']
   })
-  return { process: child }
+  child.stdout?.on('data', (chunk) => appendWorkerDiagnostic(diagnostics, chunk))
+  child.stderr?.on('data', (chunk) => appendWorkerDiagnostic(diagnostics, chunk))
+  child.once('error', (error) => appendWorkerDiagnostic(diagnostics, error instanceof Error ? error.message : String(error)))
+  child.once('exit', (code, signal) => {
+    appendWorkerDiagnostic(diagnostics, `worker exited before readiness: code=${String(code)} signal=${String(signal)}\n`)
+  })
+  return { process: child, diagnostics }
 }
 
-async function waitForT2IWorker(baseUrl: string, timeoutMs: number): Promise<boolean> {
+async function waitForT2IWorker(baseUrl: string, timeoutMs: number): Promise<T2IWorkerHealth | null> {
   const deadline = Date.now() + timeoutMs
   while (Date.now() <= deadline) {
-    if (await isWorkerHealthy(baseUrl)) {
-      return true
+    const health = await readWorkerHealth(baseUrl)
+    if (health !== null) {
+      return health
     }
     const remainingMs = deadline - Date.now()
     if (remainingMs <= 0) {
@@ -367,7 +415,7 @@ async function waitForT2IWorker(baseUrl: string, timeoutMs: number): Promise<boo
     }
     await delay(Math.min(T2I_START_POLL_MS, remainingMs))
   }
-  return false
+  return null
 }
 
 function stopT2IWorker(worker: ManagedT2IWorker): void {
@@ -387,12 +435,18 @@ function stopT2IWorker(worker: ManagedT2IWorker): void {
   worker.process.kill('SIGTERM')
 }
 
+function workerDiagnosticsContent(worker: ManagedT2IWorker): string[] {
+  const diagnostics = worker.diagnostics.join('').trim()
+  return diagnostics === '' ? [] : [`Worker startup output:\n${diagnostics}`]
+}
+
 async function ensureT2IWorker(config: ToolContext['config']): Promise<
-  | { ok: true; managed?: ManagedT2IWorker }
+  | { ok: true; managed?: ManagedT2IWorker; health: T2IWorkerHealth }
   | { ok: false; content: string }
 > {
-  if (await isWorkerHealthy(config.t2i.baseUrl)) {
-    return { ok: true }
+  const currentHealth = await readWorkerHealth(config.t2i.baseUrl)
+  if (currentHealth !== null) {
+    return { ok: true, health: currentHealth }
   }
 
   if (!config.t2i.autoStart) {
@@ -406,9 +460,9 @@ async function ensureT2IWorker(config: ToolContext['config']): Promise<
   }
 
   const managed = startT2IWorker(config)
-  const isReady = await waitForT2IWorker(config.t2i.baseUrl, config.t2i.startTimeoutMs)
-  if (isReady) {
-    return { ok: true, managed }
+  const health = await waitForT2IWorker(config.t2i.baseUrl, config.t2i.startTimeoutMs)
+  if (health !== null) {
+    return { ok: true, managed, health }
   }
 
   stopT2IWorker(managed)
@@ -416,9 +470,65 @@ async function ensureT2IWorker(config: ToolContext['config']): Promise<
     ok: false,
     content: [
       `T2I worker auto-start timed out after ${config.t2i.startTimeoutMs}ms at ${config.t2i.baseUrl}.`,
-      `Start it manually with: ${startCommandForUser(config.t2i.startCommand)}`
+      `Start it manually with: ${startCommandForUser(config.t2i.startCommand)}`,
+      ...workerDiagnosticsContent(managed)
     ].join('\n')
   }
+}
+
+function detectorMissingMessage(target: string, detector: T2IDetectorHealth | undefined): string {
+  const path = detector?.path
+  return path === undefined || path === ''
+    ? `${target} detector is not configured`
+    : `${target} detector is missing: ${path}`
+}
+
+function preflightT2IWorker(request: GenerateImageRequest, health: T2IWorkerHealth): string | null {
+  if (!request.detail_enhance && !request.eye_refine) {
+    return null
+  }
+
+  if (health.detail_dependency?.available === false) {
+    return 'detail enhancement dependency ultralytics is unavailable'
+  }
+
+  const detectors = health.detectors
+  if (detectors === undefined) {
+    return null
+  }
+
+  if (request.eye_refine) {
+    const face = detectors.face
+    if (face?.exists !== true) {
+      return detectorMissingMessage('face', face)
+    }
+  }
+
+  if (!request.detail_enhance) {
+    return null
+  }
+
+  if (request.detail_targets === 'auto') {
+    const availableAutoTarget = ['face', 'hand'].some((target) => detectors[target]?.exists === true)
+    return availableAutoTarget ? null : 'no face or hand detector is available for automatic detail enhancement'
+  }
+
+  const detector = detectors[request.detail_targets]
+  if (detector?.exists !== true) {
+    return detectorMissingMessage(request.detail_targets, detector)
+  }
+
+  return null
+}
+
+function isTimeoutError(error: unknown): boolean {
+  if (error instanceof DOMException) {
+    return error.name === 'TimeoutError' || error.name === 'AbortError'
+  }
+  if (error instanceof Error) {
+    return error.name === 'TimeoutError' || error.name === 'AbortError'
+  }
+  return false
 }
 
 async function readWorkerJson(response: Response): Promise<unknown> {
@@ -529,15 +639,27 @@ export const generateImageTool: Tool<GenerateImageArgs> = {
       return worker
     }
 
+    const preflightError = preflightT2IWorker(request, worker.health)
+    if (preflightError !== null) {
+      return { ok: false, content: `T2I worker preflight failed: ${preflightError}` }
+    }
+
     try {
       let response: Response
       try {
         response = await fetch(endpoint(context.config.t2i.baseUrl), {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
+          signal: AbortSignal.timeout(context.config.t2i.generateTimeoutMs),
           body: JSON.stringify(request)
         })
       } catch (error) {
+        if (isTimeoutError(error)) {
+          return {
+            ok: false,
+            content: `T2I worker generation timed out after ${context.config.t2i.generateTimeoutMs}ms.`
+          }
+        }
         const message = error instanceof Error ? error.message : String(error)
         return { ok: false, content: `T2I worker request failed: ${message}` }
       }

@@ -37,6 +37,7 @@ function config(root: string, outputDir = 'generated-images', t2i: Partial<AppCo
       autoStart: false,
       startCommand: './server/start-t2i.sh',
       startTimeoutMs: 120_000,
+      generateTimeoutMs: 900_000,
       ...t2i
     }
   }
@@ -73,13 +74,20 @@ function generateRequestBody(fetchMock: ReturnType<typeof vi.fn>): Record<string
   return JSON.parse(String(generateRequestCall(fetchMock)[1].body)) as Record<string, unknown>
 }
 
-function fakeChildProcess(kill = vi.fn()): { kill: ReturnType<typeof vi.fn> } {
+function fakeChildProcess(kill = vi.fn(), stderrText?: string): { kill: ReturnType<typeof vi.fn> } {
   const listeners = new Map<string, Array<(...args: unknown[]) => void>>()
   return {
     pid: 98765,
     killed: false,
     stdout: { on: vi.fn() },
-    stderr: { on: vi.fn() },
+    stderr: {
+      on: vi.fn((event: string, listener: (...args: unknown[]) => void) => {
+        if (event === 'data' && stderrText !== undefined) {
+          listener(Buffer.from(stderrText))
+        }
+        return undefined
+      })
+    },
     on: vi.fn((event: string, listener: (...args: unknown[]) => void) => {
       listeners.set(event, [...(listeners.get(event) ?? []), listener])
       return undefined
@@ -957,6 +965,41 @@ describe('generateImageTool', () => {
     ])
   })
 
+  it('fails before generation when required face detector preflight is unhealthy', async () => {
+    const root = await tempRoot()
+    const fetchMock = vi.fn(async (url: string, _init?: RequestInit) => {
+      if (String(url).endsWith('/health')) {
+        return mockJsonResponse({
+          ok: true,
+          model: 'majicmixRealistic_v7',
+          detail_dependency: { available: true },
+          detectors: {
+            face: { configured: true, exists: false, path: '/missing/face.pt' },
+            hand: { configured: false, exists: false },
+            person: { configured: false, exists: false }
+          }
+        })
+      }
+      return mockJsonResponse({
+        model: 'majicmixRealistic_v7',
+        images: [{ path: join(root, 'generated-images', 'should-not-run.png'), seed: 42, width: 1024, height: 1536 }]
+      })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await generateImageTool.execute(
+      { prompt: 'portrait' },
+      { config: config(root, 'generated-images', { autoStart: true }), trackedFiles: new Set<string>() }
+    )
+
+    expect(result.ok).toBe(false)
+    expect(result.content).toContain('T2I worker preflight failed')
+    expect(result.content).toContain('face detector is missing: /missing/face.pt')
+    expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
+      'http://127.0.0.1:7861/health'
+    ])
+  })
+
   it('stops an auto-started worker when generation fails', async () => {
     const root = await tempRoot()
     const managedWorker = fakeChildProcess()
@@ -979,6 +1022,45 @@ describe('generateImageTool', () => {
 
     expect(result.ok).toBe(false)
     expect(result.content).toContain('T2I worker returned HTTP 500')
+    expect(managedWorker.kill).toHaveBeenCalledWith('SIGTERM')
+  })
+
+  it('times out long-running generation requests and reports the configured timeout', async () => {
+    const root = await tempRoot()
+    const fetchMock = vi.fn(async (url: string, _init?: RequestInit) => {
+      if (String(url).endsWith('/health')) {
+        return mockJsonResponse({ ok: true, model: 'majicmixRealistic_v7' })
+      }
+      throw new DOMException('The operation was aborted.', 'TimeoutError')
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await generateImageTool.execute(
+      { prompt: 'portrait' },
+      { config: config(root, 'generated-images', { generateTimeoutMs: 10 }), trackedFiles: new Set<string>() }
+    )
+
+    expect(result.ok).toBe(false)
+    expect(result.content).toContain('T2I worker generation timed out after 10ms')
+    expect(generateRequestCall(fetchMock)[1].signal).toBeDefined()
+  })
+
+  it('surfaces worker startup diagnostics when auto-start times out', async () => {
+    const root = await tempRoot()
+    const managedWorker = fakeChildProcess(vi.fn(), 'missing model checkpoint\n')
+    spawnMock.mockReturnValue(managedWorker)
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      throw new Error('connect ECONNREFUSED')
+    }))
+
+    const result = await generateImageTool.execute(
+      { prompt: 'portrait' },
+      { config: config(root, 'generated-images', { autoStart: true, startTimeoutMs: 1 }), trackedFiles: new Set<string>() }
+    )
+
+    expect(result.ok).toBe(false)
+    expect(result.content).toContain('T2I worker auto-start timed out after 1ms')
+    expect(result.content).toContain('missing model checkpoint')
     expect(managedWorker.kill).toHaveBeenCalledWith('SIGTERM')
   })
 

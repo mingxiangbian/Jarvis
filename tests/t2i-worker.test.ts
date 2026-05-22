@@ -303,6 +303,29 @@ print(json.dumps([worker.validate_payload(case)[1] for case in cases]))
     ])
   })
 
+  it('mirrors tool resource limits for dimensions, pixels, count, and integer fields', () => {
+    const output = runWorkerSnippet(`${importWorker}
+cases = [
+    {"prompt": "portrait", "output_dir": "/tmp/generated-images", "width": 32},
+    {"prompt": "portrait", "output_dir": "/tmp/generated-images", "width": 500},
+    {"prompt": "portrait", "output_dir": "/tmp/generated-images", "width": 1024, "height": 1088},
+    {"prompt": "portrait", "output_dir": "/tmp/generated-images", "width": 512, "height": 512, "count": 5},
+    {"prompt": "portrait", "output_dir": "/tmp/generated-images", "steps": 20.5},
+    {"prompt": "portrait", "output_dir": "/tmp/generated-images", "seed": 1.5},
+]
+print(json.dumps([worker.validate_payload(case)[1] for case in cases]))
+`)
+
+    expect(JSON.parse(output)).toEqual([
+      'width and height must be between 64 and 1024',
+      'width and height must be multiples of 64',
+      'width * height must not exceed 1048576',
+      'count must be between 1 and 4',
+      'steps must be an integer',
+      'seed must be an integer'
+    ])
+  })
+
   it('rejects invalid eye refine fields', () => {
     const output = runWorkerSnippet(`${importWorker}
 cases = [
@@ -514,6 +537,96 @@ print(json.dumps(paths, sort_keys=True))
     expect(parsed.person).toBeUndefined()
   })
 
+  it('reports detector and optional detail dependency state for health checks', () => {
+    const output = runWorkerSnippet(`${importWorker}
+import tempfile
+from pathlib import Path
+from types import SimpleNamespace
+
+with tempfile.TemporaryDirectory() as tmpdir:
+    face_model = Path(tmpdir) / "face.pt"
+    face_model.write_text("face")
+    payload = worker.health_payload(
+        SimpleNamespace(model_name="majicmixRealistic_v7"),
+        {
+            "T2I_FACE_DETECTOR_MODEL": str(face_model),
+            "T2I_HAND_DETECTOR_MODEL": str(Path(tmpdir) / "missing-hand.pt"),
+            "T2I_PERSON_DETECTOR_MODEL": "",
+        },
+        detail_dependency_available=True,
+    )
+print(json.dumps(payload, sort_keys=True))
+`)
+
+    const parsed = JSON.parse(output) as {
+      ok: boolean
+      model: string
+      detail_dependency: { available: boolean }
+      detectors: Record<string, { configured: boolean, exists: boolean, path?: string }>
+    }
+    expect(parsed.ok).toBe(true)
+    expect(parsed.model).toBe('majicmixRealistic_v7')
+    expect(parsed.detail_dependency.available).toBe(true)
+    expect(parsed.detectors.face).toEqual(expect.objectContaining({ configured: true, exists: true }))
+    expect(parsed.detectors.face.path).toMatch(/face\.pt$/)
+    expect(parsed.detectors.hand).toEqual(expect.objectContaining({ configured: true, exists: false }))
+    expect(parsed.detectors.hand.path).toMatch(/missing-hand\.pt$/)
+    expect(parsed.detectors.person).toEqual({ configured: false, exists: false })
+  })
+
+  pillowIt('uses unique output filenames for repeated generations with the same seed', () => {
+    const output = runWorkerSnippet(`${importWorker}
+import json
+import tempfile
+from types import SimpleNamespace
+from PIL import Image
+
+class FakeGenerator:
+    def __init__(self, device):
+        self.device = device
+
+    def manual_seed(self, seed):
+        return self
+
+class FakeTorch:
+    Generator = FakeGenerator
+
+class FakePipe:
+    device = "cpu"
+
+    def __call__(self, **kwargs):
+        return SimpleNamespace(images=[Image.new("RGB", (kwargs["width"], kwargs["height"]), "white")])
+
+with tempfile.TemporaryDirectory() as output_dir:
+    payload = {
+        "prompt": "portrait",
+        "output_dir": output_dir,
+        "width": 64,
+        "height": 64,
+        "steps": 2,
+        "seed": 123,
+    }
+    request, error = worker.validate_payload(payload)
+    assert error is None
+    state = worker.WorkerState("model.safetensors", FakePipe(), FakeTorch())
+    first = worker.generate_images(state, request)[0]
+    second = worker.generate_images(state, request)[0]
+    files = sorted(path.name for path in Path(output_dir).glob("*.png"))
+
+print(json.dumps({
+    "first": Path(first["path"]).name,
+    "second": Path(second["path"]).name,
+    "files": files,
+}))
+`)
+
+    const parsed = JSON.parse(output) as { first: string, second: string, files: string[] }
+    expect(parsed.first).not.toBe(parsed.second)
+    expect(parsed.files).toHaveLength(2)
+    expect(parsed.files).toContain(parsed.first)
+    expect(parsed.files).toContain(parsed.second)
+  })
+
   it('applies realism preset prompts to improve photo realism', () => {
     const output = runWorkerSnippet(`${importWorker}
 request = {
@@ -623,8 +736,8 @@ with tempfile.TemporaryDirectory() as output_dir:
         "prompt": "portrait",
         "negative_prompt": "low quality",
         "output_dir": output_dir,
-        "width": 16,
-        "height": 16,
+        "width": 64,
+        "height": 64,
         "steps": 2,
         "cfg_scale": 12,
         "seed": 123,
@@ -660,8 +773,8 @@ print(json.dumps({
         dynamic_thresholding_mimic_scale: 7,
         dynamic_thresholding_percentile: 0.995,
         seed: 123,
-        width: 16,
-        height: 16
+        width: 64,
+        height: 64
       }
     })
   })
@@ -754,8 +867,8 @@ with tempfile.TemporaryDirectory() as output_dir:
     request, error = worker.validate_payload({
         "prompt": "portrait",
         "output_dir": output_dir,
-        "width": 16,
-        "height": 16,
+        "width": 64,
+        "height": 64,
         "steps": 2,
         "cfg_scale": 12,
         "seed": 123,
@@ -825,8 +938,8 @@ with tempfile.TemporaryDirectory() as output_dir:
     request, error = worker.validate_payload({
         "prompt": "portrait",
         "output_dir": output_dir,
-        "width": 16,
-        "height": 16,
+        "width": 64,
+        "height": 64,
         "steps": 2,
         "cfg_scale": 12,
         "seed": 123,

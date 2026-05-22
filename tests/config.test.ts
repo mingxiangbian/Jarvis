@@ -24,6 +24,7 @@ describe('createDefaultConfig', () => {
     expect(config.t2i.autoStart).toBe(true)
     expect(config.t2i.startCommand).toBe('./server/start-t2i.sh')
     expect(config.t2i.startTimeoutMs).toBe(120_000)
+    expect(config.t2i.generateTimeoutMs).toBe(900_000)
   })
 
   it('uses local T2I environment overrides when present', () => {
@@ -32,6 +33,7 @@ describe('createDefaultConfig', () => {
     vi.stubEnv('T2I_AUTO_START', '0')
     vi.stubEnv('T2I_START_COMMAND', './custom-t2i.sh')
     vi.stubEnv('T2I_START_TIMEOUT_MS', '45000')
+    vi.stubEnv('T2I_GENERATE_TIMEOUT_MS', '60000')
 
     const config = createDefaultConfig('/tmp/project')
 
@@ -40,6 +42,7 @@ describe('createDefaultConfig', () => {
     expect(config.t2i.autoStart).toBe(false)
     expect(config.t2i.startCommand).toBe('./custom-t2i.sh')
     expect(config.t2i.startTimeoutMs).toBe(45_000)
+    expect(config.t2i.generateTimeoutMs).toBe(60_000)
   })
 
   it('keeps v1 safety and context limits explicit', () => {

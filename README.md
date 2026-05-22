@@ -105,6 +105,7 @@ T2I_OUTPUT_DIR=generated-images
 T2I_AUTO_START=1
 T2I_START_COMMAND=./server/start-t2i.sh
 T2I_START_TIMEOUT_MS=120000
+T2I_GENERATE_TIMEOUT_MS=900000
 T2I_FACE_DETECTOR_MODEL=./T2I/adetailer/face_yolov8n.pt
 T2I_HAND_DETECTOR_MODEL=./T2I/adetailer/hand_yolov8n.pt
 T2I_PERSON_DETECTOR_MODEL=./T2I/adetailer/person_yolov8n-seg.pt
@@ -112,7 +113,7 @@ T2I_PERSON_DETECTOR_MODEL=./T2I/adetailer/person_yolov8n-seg.pt
 
 Generated files are written under `T2I_OUTPUT_DIR`, resolved relative to the active workspace. In the web UI that means the selected workspace, so Markdown image links such as `![image](generated-images/example.png)` can be previewed through the workspace file viewer.
 
-Before each generation, `generate_image` checks the worker `/health` endpoint. If the worker is already running, it is reused and left running. If it is unavailable and `T2I_AUTO_START` is enabled, the tool starts `T2I_START_COMMAND`, waits up to `T2I_START_TIMEOUT_MS`, generates the image, then stops only the worker process it started. If auto-start is disabled or startup times out, the tool returns the manual start command in the error message.
+Before each generation, `generate_image` checks the worker `/health` endpoint. The health payload includes the loaded model, optional detail dependency availability, and configured detector model paths. Requests that need face, hand, or person refinement fail early when the required detector is missing. If the worker is already running, it is reused and left running. If it is unavailable and `T2I_AUTO_START` is enabled, the tool starts `T2I_START_COMMAND`, waits up to `T2I_START_TIMEOUT_MS`, generates the image with a `T2I_GENERATE_TIMEOUT_MS` timeout, then stops only the worker process it started. If auto-start is disabled or startup times out, the tool returns the manual start command and captured worker startup output in the error message.
 
 The `generate_image` tool supports:
 

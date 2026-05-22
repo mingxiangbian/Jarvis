@@ -13,6 +13,7 @@ export interface T2IConfig {
   autoStart: boolean
   startCommand: string
   startTimeoutMs: number
+  generateTimeoutMs: number
 }
 
 export interface AppConfig {
@@ -73,7 +74,8 @@ export function createDefaultConfig(cwd: string): AppConfig {
       outputDir: process.env.T2I_OUTPUT_DIR ?? 'generated-images',
       autoStart: parseBooleanEnv(process.env.T2I_AUTO_START, true),
       startCommand: process.env.T2I_START_COMMAND ?? './server/start-t2i.sh',
-      startTimeoutMs: parsePositiveIntEnv(process.env.T2I_START_TIMEOUT_MS, 120_000)
+      startTimeoutMs: parsePositiveIntEnv(process.env.T2I_START_TIMEOUT_MS, 120_000),
+      generateTimeoutMs: parsePositiveIntEnv(process.env.T2I_GENERATE_TIMEOUT_MS, 900_000)
     },
     maxToolCallsPerTurn: 10,
     contextWindowTokens: 256_000,

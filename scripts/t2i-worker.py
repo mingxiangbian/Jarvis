@@ -4,12 +4,14 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import inspect
 import json
 import math
 import os
 import random
 import threading
+import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -32,6 +34,10 @@ DEFAULT_EYE_REFINE_STEPS = 12
 DEFAULT_DYNAMIC_THRESHOLDING = False
 DEFAULT_DYNAMIC_THRESHOLDING_MIMIC_SCALE = 7.0
 DEFAULT_DYNAMIC_THRESHOLDING_PERCENTILE = 0.995
+MIN_DIMENSION = 64
+MAX_DIMENSION = 1024
+MAX_PIXELS = 1024 * 1024
+MAX_COUNT = 4
 HIRES_TILE_SIZE = 512
 MAX_DETAIL_REFINEMENT_DIMENSION = 512
 MAX_EYE_REFINEMENT_DIMENSION = 256
@@ -169,22 +175,22 @@ def parse_finite_int(
     value = payload.get(name, default)
     if value is None:
         return None, None
-    error = type_error or f"{name} must be numeric"
+    type_message = type_error or f"{name} must be numeric"
+    integer_message = type_error or f"{name} must be an integer"
     if isinstance(value, bool):
-        return None, error
+        return None, type_message
 
     try:
         numeric = float(value)
     except (TypeError, ValueError):
-        return None, error
+        return None, type_message
 
     if not math.isfinite(numeric):
         return None, f"{name} must be finite"
+    if not numeric.is_integer():
+        return None, integer_message
 
-    try:
-        return int(value), None
-    except (TypeError, ValueError):
-        return None, error
+    return int(numeric), None
 
 
 def validate_payload(payload: Any) -> tuple[dict[str, Any] | None, str | None]:
@@ -332,6 +338,14 @@ def validate_payload(payload: Any) -> tuple[dict[str, Any] | None, str | None]:
 
     if width <= 0 or height <= 0 or steps <= 0 or count <= 0:
         return None, "width, height, steps, and count must be positive"
+    if width * height > MAX_PIXELS:
+        return None, f"width * height must not exceed {MAX_PIXELS}"
+    if width < MIN_DIMENSION or height < MIN_DIMENSION or width > MAX_DIMENSION or height > MAX_DIMENSION:
+        return None, "width and height must be between 64 and 1024"
+    if width % 64 != 0 or height % 64 != 0:
+        return None, "width and height must be multiples of 64"
+    if count < 1 or count > MAX_COUNT:
+        return None, "count must be between 1 and 4"
 
     return {
         "prompt": prompt.strip(),
@@ -481,6 +495,46 @@ def resolve_detector_model_paths(detail_targets: str, env: dict[str, str] | None
         )
 
     return resolved
+
+
+def detail_dependency_available() -> bool:
+    return importlib.util.find_spec("ultralytics") is not None
+
+
+def detector_health(env: dict[str, str] | None = None) -> dict[str, dict[str, Any]]:
+    source = os.environ if env is None else env
+    status: dict[str, dict[str, Any]] = {}
+    for target, env_name in DETECTOR_ENV_BY_TARGET.items():
+        value = source.get(env_name, "").strip()
+        configured = bool(value)
+        target_status: dict[str, Any] = {
+            "configured": configured,
+            "exists": configured and Path(value).exists(),
+        }
+        if configured:
+            target_status["path"] = value
+        status[target] = target_status
+    return status
+
+
+def health_payload(
+    state: WorkerState,
+    env: dict[str, str] | None = None,
+    detail_dependency_available: bool | None = None,
+) -> dict[str, Any]:
+    dependency_available = (
+        globals()["detail_dependency_available"]()
+        if detail_dependency_available is None
+        else detail_dependency_available
+    )
+    return {
+        "ok": True,
+        "model": state.model_name,
+        "detail_dependency": {
+            "available": dependency_available,
+        },
+        "detectors": detector_health(env),
+    }
 
 
 def append_prompt_part(current: str, addition: str) -> str:
@@ -899,6 +953,16 @@ def enhance_details(state: WorkerState, image: Any, request: dict[str, Any], see
     return enhanced_image, metadata
 
 
+def unique_output_stem(output_dir: Path, seed: int) -> str:
+    base = f"{int(time.time() * 1000)}-{seed}"
+    candidate = base
+    counter = 1
+    while any((output_dir / f"{candidate}{suffix}.png").exists() for suffix in ("", "-base", "-hires")):
+        candidate = f"{base}-{counter}"
+        counter += 1
+    return candidate
+
+
 def generate_images(state: WorkerState, request: dict[str, Any]) -> list[dict[str, Any]]:
     request = dict(request)
     apply_realism_preset(request)
@@ -913,6 +977,7 @@ def generate_images(state: WorkerState, request: dict[str, Any]) -> list[dict[st
     images: list[dict[str, Any]] = []
     for index in range(request["count"]):
         seed = base_seed + index
+        output_stem = unique_output_stem(output_dir, seed)
         generator = state.torch.Generator(device=state.pipe.device).manual_seed(seed)
         kwargs = {
             "prompt": request["prompt"],
@@ -945,7 +1010,7 @@ def generate_images(state: WorkerState, request: dict[str, Any]) -> list[dict[st
 
         image = result.images[0].convert("RGB")
         if request["return_intermediate"]:
-            image.save(output_dir / f"{seed}-base.png")
+            image.save(output_dir / f"{output_stem}-base.png")
 
         hires_metadata: dict[str, Any] = {}
         if request["hires_fix"]:
@@ -955,7 +1020,7 @@ def generate_images(state: WorkerState, request: dict[str, Any]) -> list[dict[st
                 "hires_scale": request["hires_scale"],
             }
             if request["return_intermediate"]:
-                image.save(output_dir / f"{seed}-hires.png")
+                image.save(output_dir / f"{output_stem}-hires.png")
 
         detail_metadata: dict[str, Any] = {}
         if request["detail_enhance"] or request["eye_refine"]:
@@ -966,7 +1031,7 @@ def generate_images(state: WorkerState, request: dict[str, Any]) -> list[dict[st
             image = apply_bmab_postprocess(image, request, seed)
             postprocess_metadata = {"postprocessed": True}
 
-        file_path = output_dir / f"{seed}.png"
+        file_path = output_dir / f"{output_stem}.png"
         image.save(file_path)
         images.append({
             "path": str(file_path),
@@ -995,7 +1060,7 @@ class T2IHandler(BaseHTTPRequestHandler):
             json_response(self, HTTPStatus.NOT_FOUND, {"error": "not found"})
             return
 
-        json_response(self, HTTPStatus.OK, {"ok": True, "model": self.server.state.model_name})
+        json_response(self, HTTPStatus.OK, health_payload(self.server.state))
 
     def do_POST(self) -> None:
         if self.path != "/generate":
