@@ -371,6 +371,7 @@ describe('generateImageTool', () => {
     const result = await generateImageTool.execute(
       {
         prompt: 'landscape',
+        safe_preset: false,
         negative_prompt: 'low quality',
         width: 768,
         height: 512,
@@ -414,6 +415,7 @@ describe('generateImageTool', () => {
     const result = await generateImageTool.execute(
       {
         prompt: 'portrait photo',
+        safe_preset: false,
         detail_enhance: true,
         detail_targets: 'auto',
         detail_strength: 0.42,
@@ -526,6 +528,7 @@ describe('generateImageTool', () => {
     const result = await generateImageTool.execute(
       {
         prompt: 'portrait photo',
+        safe_preset: false,
         realism_preset: true,
         detail_enhance: true
       },
@@ -555,7 +558,7 @@ describe('generateImageTool', () => {
       {
         id: 'call-1',
         name: 'generate_image',
-        argumentsText: JSON.stringify({ prompt: 'portrait photo', realism_preset: true })
+        argumentsText: JSON.stringify({ prompt: 'portrait photo', safe_preset: false, realism_preset: true })
       },
       [generateImageTool],
       { config: config(root), trackedFiles: new Set<string>() }
@@ -583,6 +586,7 @@ describe('generateImageTool', () => {
     const result = await generateImageTool.execute(
       {
         prompt: 'portrait photo',
+        safe_preset: false,
         realism_preset: true,
         cfg_scale: 7.5,
         detail_strength: 0.33
@@ -657,7 +661,7 @@ describe('generateImageTool', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     const result = await generateImageTool.execute(
-      { prompt: 'portrait', width: 500 },
+      { prompt: 'portrait', safe_preset: false, width: 500 },
       { config: config(root), trackedFiles: new Set<string>() }
     )
 
@@ -672,7 +676,7 @@ describe('generateImageTool', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     const result = await generateImageTool.execute(
-      { prompt: 'large', width: 2048, height: 1024 },
+      { prompt: 'large', safe_preset: false, width: 2048, height: 1024 },
       { config: config(root), trackedFiles: new Set<string>() }
     )
 
@@ -784,7 +788,7 @@ describe('generateImageTool', () => {
     ))
 
     const result = await generateImageTool.execute(
-      { prompt: 'portrait', count: 2 },
+      { prompt: 'portrait', safe_preset: false, count: 2 },
       { config: config(root), trackedFiles: new Set<string>() }
     )
 

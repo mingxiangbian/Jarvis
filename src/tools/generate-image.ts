@@ -34,7 +34,40 @@ interface GenerateImageArgs {
   detail_enhance?: boolean
   detail_targets?: DetailTarget
   detail_strength?: number
+  safe_preset?: boolean
+  dynamic_thresholding?: boolean
+  dynamic_thresholding_mimic_scale?: number
+  dynamic_thresholding_percentile?: number
   return_intermediate?: boolean
+}
+
+const SAFE_PRESET_NAME = 'm3_16gb_safe'
+const SAFE_PRESET = {
+  width: 512,
+  height: 768,
+  steps: 20,
+  cfg_scale: 7,
+  count: 1,
+  hires_fix: true,
+  hires_scale: 2,
+  hires_steps: 15,
+  hires_denoise: 0.15,
+  detail_enhance: true,
+  detail_targets: 'face' as DetailTarget,
+  detail_strength: 0.1,
+  eye_refine: true,
+  eye_refine_strength: 0.12,
+  eye_refine_steps: 12,
+  bmab_postprocess: true,
+  dynamic_thresholding: true,
+  dynamic_thresholding_mimic_scale: 7,
+  dynamic_thresholding_percentile: 0.995
+}
+
+type PresetAdjustment = {
+  field: string
+  from: boolean | number | string
+  to: boolean | number | string
 }
 
 const dimensionSchema = z.number()
@@ -68,6 +101,10 @@ const schema: z.ZodType<GenerateImageArgs> = z.object({
   detail_enhance: z.boolean().default(false),
   detail_targets: z.enum(['auto', 'face', 'hand', 'person']).default('auto'),
   detail_strength: z.number().min(0.1).max(0.7).optional(),
+  safe_preset: z.boolean().default(true),
+  dynamic_thresholding: z.boolean().default(true),
+  dynamic_thresholding_mimic_scale: z.number().min(1).max(20).default(7),
+  dynamic_thresholding_percentile: z.number().gt(0.9).lt(1).default(0.995),
   return_intermediate: z.boolean().default(false)
 })
 
@@ -113,6 +150,10 @@ type GenerateImageRequest = {
   detail_enhance: boolean
   detail_targets: DetailTarget
   detail_strength: number
+  safe_preset: boolean
+  dynamic_thresholding: boolean
+  dynamic_thresholding_mimic_scale: number
+  dynamic_thresholding_percentile: number
   return_intermediate: boolean
   output_dir: string
   seed?: number
@@ -173,8 +214,27 @@ function resolveOutputDir(cwd: string, outputDir: string): { ok: true; path: str
   return { ok: true, path: resolvedOutputDir }
 }
 
-function normalizeArgs(args: GenerateImageArgs, outputDir: string): GenerateImageRequest {
+function applyPresetValue(
+  request: GenerateImageRequest,
+  source: GenerateImageArgs,
+  adjustments: PresetAdjustment[],
+  field: keyof typeof SAFE_PRESET
+): void {
+  const value = SAFE_PRESET[field]
+  const sourceValue = source[field as keyof GenerateImageArgs]
+  if (sourceValue !== undefined && sourceValue !== value) {
+    adjustments.push({ field: String(field), from: sourceValue as boolean | number | string, to: value })
+  }
+  ;(request as unknown as Record<string, boolean | number | string>)[field] = value
+}
+
+function normalizeArgs(
+  args: GenerateImageArgs,
+  outputDir: string
+): { request: GenerateImageRequest; preset?: string; presetAdjustments: PresetAdjustment[] } {
   const realismPreset = args.realism_preset ?? false
+  const safePreset = args.safe_preset ?? true
+  const presetAdjustments: PresetAdjustment[] = []
   const request: GenerateImageRequest = {
     prompt: args.prompt,
     negative_prompt: args.negative_prompt ?? '',
@@ -199,6 +259,10 @@ function normalizeArgs(args: GenerateImageArgs, outputDir: string): GenerateImag
     detail_enhance: args.detail_enhance ?? false,
     detail_targets: args.detail_targets ?? 'auto',
     detail_strength: args.detail_strength ?? (realismPreset ? 0.2 : 0.35),
+    safe_preset: safePreset,
+    dynamic_thresholding: args.dynamic_thresholding ?? true,
+    dynamic_thresholding_mimic_scale: args.dynamic_thresholding_mimic_scale ?? 7,
+    dynamic_thresholding_percentile: args.dynamic_thresholding_percentile ?? 0.995,
     return_intermediate: args.return_intermediate ?? false,
     output_dir: outputDir
   }
@@ -207,7 +271,17 @@ function normalizeArgs(args: GenerateImageArgs, outputDir: string): GenerateImag
     request.seed = args.seed
   }
 
-  return request
+  if (safePreset) {
+    for (const field of Object.keys(SAFE_PRESET) as Array<keyof typeof SAFE_PRESET>) {
+      applyPresetValue(request, args, presetAdjustments, field)
+    }
+  }
+
+  return {
+    request,
+    preset: safePreset ? SAFE_PRESET_NAME : undefined,
+    presetAdjustments
+  }
 }
 
 function endpoint(baseUrl: string): string {
@@ -277,6 +351,10 @@ export const generateImageTool: Tool<GenerateImageArgs> = {
       detail_enhance: { type: 'boolean', description: 'Whether to run optional detail enhancement after generation. Defaults to false.' },
       detail_targets: { type: 'string', enum: ['auto', 'face', 'hand', 'person'], description: 'Detail enhancement target selection. Defaults to auto.' },
       detail_strength: { type: 'number', description: 'Detail enhancement denoising strength, 0.1 to 0.7. Defaults to 0.35.' },
+      safe_preset: { type: 'boolean', description: 'Whether to force the M3 16 GB safe generation preset. Defaults to true.' },
+      dynamic_thresholding: { type: 'boolean', description: 'Whether to enable Dynamic Thresholding. Defaults to true.' },
+      dynamic_thresholding_mimic_scale: { type: 'number', description: 'Dynamic Thresholding mimic scale, 1 to 20. Defaults to 7.' },
+      dynamic_thresholding_percentile: { type: 'number', description: 'Dynamic Thresholding percentile, greater than 0.9 and less than 1. Defaults to 0.995.' },
       return_intermediate: { type: 'boolean', description: 'Whether the worker should return intermediate detail enhancement artifacts. Defaults to false.' }
     },
     required: ['prompt'],
@@ -293,7 +371,8 @@ export const generateImageTool: Tool<GenerateImageArgs> = {
       return outputDir
     }
 
-    const request = normalizeArgs(args, outputDir.path)
+    const normalized = normalizeArgs(args, outputDir.path)
+    const request = normalized.request
     const dimensionError = validateDimensions(request.width, request.height)
     if (dimensionError) {
       return { ok: false, content: dimensionError }
@@ -397,15 +476,34 @@ export const generateImageTool: Tool<GenerateImageArgs> = {
     })
 
     const imageWord = images.length === 1 ? 'image' : 'images'
+    const adjustmentLines = normalized.presetAdjustments.length === 0
+      ? ['adjusted: none']
+      : normalized.presetAdjustments
+        .map((adjustment) => `adjusted: ${adjustment.field} ${String(adjustment.from)} -> ${String(adjustment.to)}`)
+    const presetLines = normalized.preset === undefined
+      ? []
+      : [
+          `preset: ${normalized.preset}`,
+          ...adjustmentLines
+        ]
     return {
       ok: true,
       content: [
         `Generated ${images.length} ${imageWord} with ${parsed.data.model}.`,
+        ...presetLines,
+        `dynamic thresholding: ${request.dynamic_thresholding ? 'enabled' : 'disabled'}`,
         ...imageLines
       ].join('\n'),
       metadata: {
         model: parsed.data.model,
-        images
+        images,
+        preset: normalized.preset,
+        preset_adjustments: normalized.presetAdjustments,
+        dynamic_thresholding: {
+          enabled: request.dynamic_thresholding,
+          mimic_scale: request.dynamic_thresholding_mimic_scale,
+          percentile: request.dynamic_thresholding_percentile
+        }
       }
     }
   }
