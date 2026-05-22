@@ -55,6 +55,16 @@ describe('generateImageTool', () => {
     expect(generateImageTool.description).toContain('local SD1.5 worker')
   })
 
+  it('exposes safe preset and Dynamic Thresholding in the public parameters schema', () => {
+    expect(generateImageTool.parameters.additionalProperties).toBe(false)
+    expect(generateImageTool.parameters.properties).toEqual(expect.objectContaining({
+      safe_preset: expect.objectContaining({ type: 'boolean' }),
+      dynamic_thresholding: expect.objectContaining({ type: 'boolean' }),
+      dynamic_thresholding_mimic_scale: expect.objectContaining({ type: 'number' }),
+      dynamic_thresholding_percentile: expect.objectContaining({ type: 'number' })
+    }))
+  })
+
   it('validates schema defaults, dimension constraints, and count limit', () => {
     const defaults = generateImageTool.schema.safeParse({ prompt: 'portrait' })
     expect(defaults.success).toBe(true)
@@ -102,6 +112,9 @@ describe('generateImageTool', () => {
     expect(generateImageTool.schema.safeParse({ prompt: 'portrait', detail_targets: 'animal' }).success).toBe(false)
     expect(generateImageTool.schema.safeParse({ prompt: 'portrait', detail_strength: 0.09 }).success).toBe(false)
     expect(generateImageTool.schema.safeParse({ prompt: 'portrait', detail_strength: 0.71 }).success).toBe(false)
+    expect(generateImageTool.schema.safeParse({ prompt: 'portrait', dynamic_thresholding_mimic_scale: 0 }).success).toBe(false)
+    expect(generateImageTool.schema.safeParse({ prompt: 'portrait', dynamic_thresholding_percentile: 0 }).success).toBe(false)
+    expect(generateImageTool.schema.safeParse({ prompt: 'portrait', dynamic_thresholding_percentile: 1.01 }).success).toBe(false)
   })
 
   it('sends defaults to the T2I worker and formats returned paths', async () => {
@@ -110,7 +123,23 @@ describe('generateImageTool', () => {
     const fetchMock = vi.fn(async (_url: string, _init: RequestInit) =>
       mockJsonResponse({
         model: 'majicmixRealistic_v7',
-        images: [{ path: imagePath, seed: 42, width: 512, height: 768 }]
+        images: [{
+          path: imagePath,
+          seed: 42,
+          width: 1024,
+          height: 1536,
+          hires_upscaled: true,
+          hires_scale: 2,
+          postprocessed: true,
+          eye_refined: true,
+          eye_regions: 1,
+          detail_enhanced: true,
+          detail_regions: 1,
+          detail_targets: ['face'],
+          dynamic_thresholding: true,
+          dynamic_thresholding_mimic_scale: 7,
+          dynamic_thresholding_percentile: 0.995
+        }]
       })
     )
     vi.stubGlobal('fetch', fetchMock)
@@ -132,25 +161,29 @@ describe('generateImageTool', () => {
       negative_prompt: '',
       width: 512,
       height: 768,
-      steps: 30,
+      steps: 20,
       cfg_scale: 7,
       count: 1,
       realism_preset: false,
-      hires_fix: false,
+      safe_preset: true,
+      hires_fix: true,
       hires_scale: 2,
       hires_steps: 15,
       hires_denoise: 0.15,
-      bmab_postprocess: false,
+      bmab_postprocess: true,
       bmab_noise_alpha: 0.05,
       bmab_contrast: 0.9,
       bmab_brightness: 1.1,
       bmab_color_temperature: 15,
-      eye_refine: false,
+      eye_refine: true,
       eye_refine_strength: 0.12,
       eye_refine_steps: 12,
-      detail_enhance: false,
-      detail_targets: 'auto',
-      detail_strength: 0.35,
+      detail_enhance: true,
+      detail_targets: 'face',
+      detail_strength: 0.1,
+      dynamic_thresholding: true,
+      dynamic_thresholding_mimic_scale: 7,
+      dynamic_thresholding_percentile: 0.995,
       return_intermediate: false,
       output_dir: join(root, 'generated-images')
     })
@@ -158,7 +191,18 @@ describe('generateImageTool', () => {
     expect(result.content).toContain(`absolute path: ${imagePath}`)
     expect(result.content).toContain('relative path: generated-images/image-1.png')
     expect(result.content).toContain('seed: 42')
-    expect(result.content).toContain('size: 512x768')
+    expect(result.content).toContain('size: 1024x1536')
+    expect(result.content).toContain('preset: m3_16gb_safe')
+    expect(result.content).toContain('dynamic thresholding: enabled')
+    expect(result.metadata).toMatchObject({
+      model: 'majicmixRealistic_v7',
+      preset: 'm3_16gb_safe',
+      dynamic_thresholding: {
+        enabled: true,
+        mimic_scale: 7,
+        percentile: 0.995
+      }
+    })
   })
 
   it('applies the M3 safe preset by default and reports adjustments', async () => {
@@ -229,6 +273,14 @@ describe('generateImageTool', () => {
     })
     expect(result.content).toContain('preset: m3_16gb_safe')
     expect(result.content).toContain('adjusted: width 1024 -> 512')
+    expect(result.content).toContain('adjusted: height 1024 -> 768')
+    expect(result.content).toContain('adjusted: steps 40 -> 20')
+    expect(result.content).toContain('adjusted: cfg_scale 12 -> 7')
+    expect(result.content).toContain('adjusted: count 3 -> 1')
+    expect(result.content).toContain('adjusted: hires_fix false -> true')
+    expect(result.content).toContain('adjusted: detail_enhance false -> true')
+    expect(result.content).toContain('adjusted: eye_refine false -> true')
+    expect(result.content).toContain('adjusted: bmab_postprocess false -> true')
     expect(result.content).toContain('dynamic thresholding: enabled')
     expect(result.metadata).toMatchObject({
       model: 'majicmixRealistic_v7',
@@ -239,6 +291,14 @@ describe('generateImageTool', () => {
         percentile: 0.995
       }
     })
+    const metadata = result.metadata as { preset_adjustments?: unknown[] } | undefined
+    if (metadata?.preset_adjustments) {
+      expect(metadata.preset_adjustments).toEqual(expect.arrayContaining([
+        expect.objectContaining({ field: 'width', from: 1024, to: 512 }),
+        expect.objectContaining({ field: 'cfg_scale', from: 12, to: 7 }),
+        expect.objectContaining({ field: 'count', from: 3, to: 1 })
+      ]))
+    }
   })
 
   it('preserves explicit generation values when safe_preset is false', async () => {
@@ -286,6 +346,7 @@ describe('generateImageTool', () => {
       dynamic_thresholding_percentile: 0.99
     })
     expect(result.content).not.toContain('preset: m3_16gb_safe')
+    expect(result.metadata).not.toMatchObject({ preset: 'm3_16gb_safe' })
   })
 
   it('passes explicit dimensions, count, seed, and negative prompt', async () => {
