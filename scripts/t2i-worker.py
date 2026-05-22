@@ -393,7 +393,8 @@ def dynamic_threshold_latents(
     threshold = threshold.reshape(view_shape).to(device=latents.device, dtype=original_dtype)
     clipped = latents.clamp(-threshold, threshold)
     blend = max(0.0, min(1.0, mimic_scale / guidance_scale))
-    return (latents * blend) + (clipped * (1.0 - blend))
+    limited = (latents * blend) + (clipped * (1.0 - blend))
+    return limited.clamp(-threshold, threshold)
 
 
 def build_dynamic_thresholding_callback(

@@ -56,6 +56,7 @@ function workerPythonHasTorch(): boolean {
 
 const pillowIt = workerPythonHasPillow() ? it : it.skip
 const torchIt = workerPythonHasTorch() ? it : it.skip
+const pillowAndTorchIt = workerPythonHasPillow() && workerPythonHasTorch() ? it : it.skip
 
 const importWorker = `
 import importlib.util
@@ -490,7 +491,7 @@ print(json.dumps({
   torchIt('clips extreme latent values with dynamic thresholding helper', () => {
     const output = runWorkerSnippet(`${importWorker}
 import torch
-latents = torch.tensor([[[[0.0, 1.0], [20.0, -200.0]]]])
+latents = torch.tensor([[[[0.0, 1.0], [20.0, -200.0]]]], dtype=torch.float16)
 limited = worker.dynamic_threshold_latents(
     torch,
     latents,
@@ -498,8 +499,14 @@ limited = worker.dynamic_threshold_latents(
     mimic_scale=7.0,
     percentile=0.95,
 )
+threshold = torch.quantile(latents.detach().float().reshape(latents.shape[0], -1).abs(), 0.95, dim=1)
+threshold = torch.maximum(threshold, torch.ones_like(threshold))
+threshold = threshold.reshape((latents.shape[0],) + (1,) * (latents.ndim - 1)).to(device=limited.device, dtype=limited.dtype)
 print(json.dumps({
     "reduced": bool(limited.abs().max().item() < latents.abs().max().item()),
+    "capped": bool(limited.abs().le(threshold).all().item()),
+    "dtype": str(limited.dtype),
+    "device": str(limited.device),
     "shape": list(limited.shape),
     "changed": bool(not torch.equal(latents, limited)),
 }))
@@ -507,9 +514,223 @@ print(json.dumps({
 
     expect(JSON.parse(output)).toEqual({
       reduced: true,
+      capped: true,
+      dtype: 'torch.float16',
+      device: 'cpu',
       shape: [1, 1, 2, 2],
       changed: true
     })
+  })
+
+  pillowAndTorchIt('wires dynamic thresholding callback into supported diffusers pipeline', () => {
+    const output = runWorkerSnippet(`${importWorker}
+import json
+import tempfile
+import torch
+from types import SimpleNamespace
+from PIL import Image
+
+recorded = {}
+
+class FakeGenerator:
+    def __init__(self, device):
+        self.device = device
+        self.seed = None
+
+    def manual_seed(self, seed):
+        self.seed = seed
+        return self
+
+class FakeTorch:
+    Generator = FakeGenerator
+    quantile = staticmethod(torch.quantile)
+    maximum = staticmethod(torch.maximum)
+    ones_like = staticmethod(torch.ones_like)
+
+class FakePipe:
+    device = "cpu"
+
+    def __call__(
+        self,
+        *,
+        callback_on_step_end=None,
+        callback_on_step_end_tensor_inputs=None,
+        **kwargs,
+    ):
+        latents = torch.tensor([[[[0.0, 1.0], [20.0, -200.0]]]], dtype=torch.float32)
+        callback_result = callback_on_step_end(self, 0, "timestep", {"latents": latents})
+        recorded.update({
+            "has_callback": callback_on_step_end is not None,
+            "tensor_inputs": callback_on_step_end_tensor_inputs,
+            "callback_result_has_latents": "latents" in callback_result,
+            "callback_input_dtype": str(latents.dtype),
+            "callback_output_dtype": str(callback_result["latents"].dtype),
+            "callback_changed_latents": bool(not torch.equal(latents, callback_result["latents"])),
+        })
+        return SimpleNamespace(images=[Image.new("RGB", (kwargs["width"], kwargs["height"]), "white")])
+
+with tempfile.TemporaryDirectory() as output_dir:
+    request, error = worker.validate_payload({
+        "prompt": "portrait",
+        "negative_prompt": "low quality",
+        "output_dir": output_dir,
+        "width": 16,
+        "height": 16,
+        "steps": 2,
+        "cfg_scale": 12,
+        "seed": 123,
+        "dynamic_thresholding": True,
+    })
+    assert error is None
+    images = worker.generate_images(worker.WorkerState("model.safetensors", FakePipe(), FakeTorch()), request)
+
+print(json.dumps({
+    "recorded": recorded,
+    "metadata": {
+        "dynamic_thresholding": images[0]["dynamic_thresholding"],
+        "dynamic_thresholding_mimic_scale": images[0]["dynamic_thresholding_mimic_scale"],
+        "dynamic_thresholding_percentile": images[0]["dynamic_thresholding_percentile"],
+        "seed": images[0]["seed"],
+        "width": images[0]["width"],
+        "height": images[0]["height"],
+    },
+}))
+`)
+
+    expect(JSON.parse(output)).toEqual({
+      recorded: {
+        has_callback: true,
+        tensor_inputs: ['latents'],
+        callback_result_has_latents: true,
+        callback_input_dtype: 'torch.float32',
+        callback_output_dtype: 'torch.float32',
+        callback_changed_latents: true
+      },
+      metadata: {
+        dynamic_thresholding: true,
+        dynamic_thresholding_mimic_scale: 7,
+        dynamic_thresholding_percentile: 0.995,
+        seed: 123,
+        width: 16,
+        height: 16
+      }
+    })
+  })
+
+  pillowAndTorchIt('rejects dynamic thresholding when the pipeline lacks step-end callback support', () => {
+    const output = runWorkerSnippet(`${importWorker}
+import tempfile
+from types import SimpleNamespace
+
+class FakeGenerator:
+    def __init__(self, device):
+        self.device = device
+
+    def manual_seed(self, seed):
+        return self
+
+class FakeTorch:
+    Generator = FakeGenerator
+
+class FakePipe:
+    device = "cpu"
+
+    def __call__(self, **kwargs):
+        raise AssertionError("pipeline should not be called")
+
+with tempfile.TemporaryDirectory() as output_dir:
+    request, error = worker.validate_payload({
+        "prompt": "portrait",
+        "output_dir": output_dir,
+        "seed": 123,
+        "dynamic_thresholding": True,
+    })
+    assert error is None
+    try:
+        worker.generate_images(worker.WorkerState("model.safetensors", FakePipe(), FakeTorch()), request)
+    except RuntimeError as exc:
+        print(str(exc))
+`)
+
+    expect(output).toBe('dynamic_thresholding requires diffusers callback_on_step_end support')
+  })
+
+  pillowAndTorchIt('keeps dynamic thresholding callback arguments during clip_skip fallback', () => {
+    const output = runWorkerSnippet(`${importWorker}
+import json
+import tempfile
+import torch
+from types import SimpleNamespace
+from PIL import Image
+
+calls = []
+
+class FakeGenerator:
+    def __init__(self, device):
+        self.device = device
+
+    def manual_seed(self, seed):
+        return self
+
+class FakeTorch:
+    Generator = FakeGenerator
+    quantile = staticmethod(torch.quantile)
+    maximum = staticmethod(torch.maximum)
+    ones_like = staticmethod(torch.ones_like)
+
+class FakePipe:
+    device = "cpu"
+
+    def __call__(
+        self,
+        *,
+        callback_on_step_end=None,
+        callback_on_step_end_tensor_inputs=None,
+        **kwargs,
+    ):
+        calls.append({
+            "has_clip_skip": "clip_skip" in kwargs,
+            "has_callback": callback_on_step_end is not None,
+            "tensor_inputs": callback_on_step_end_tensor_inputs,
+        })
+        if "clip_skip" in kwargs:
+            raise TypeError("got an unexpected keyword argument 'clip_skip'")
+
+        latents = torch.tensor([[[[0.0, 1.0], [20.0, -200.0]]]], dtype=torch.float32)
+        callback_result = callback_on_step_end(self, 0, "timestep", {"latents": latents})
+        calls[-1]["callback_result_has_latents"] = "latents" in callback_result
+        return SimpleNamespace(images=[Image.new("RGB", (kwargs["width"], kwargs["height"]), "white")])
+
+with tempfile.TemporaryDirectory() as output_dir:
+    request, error = worker.validate_payload({
+        "prompt": "portrait",
+        "output_dir": output_dir,
+        "width": 16,
+        "height": 16,
+        "steps": 2,
+        "cfg_scale": 12,
+        "seed": 123,
+        "dynamic_thresholding": True,
+    })
+    assert error is None
+    worker.generate_images(worker.WorkerState("model.safetensors", FakePipe(), FakeTorch()), request)
+
+print(json.dumps(calls))
+`)
+
+    expect(JSON.parse(output)).toEqual([
+      {
+        has_clip_skip: true,
+        has_callback: true,
+        tensor_inputs: ['latents']
+      },
+      {
+        has_clip_skip: false,
+        has_callback: true,
+        tensor_inputs: ['latents'],
+        callback_result_has_latents: true
+      }
+    ])
   })
 
   pillowIt('applies hires fix with expected img2img arguments using fake pipeline and torch', () => {
