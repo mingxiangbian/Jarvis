@@ -801,7 +801,7 @@ describe('startWebServer', () => {
     await expect(realpath(join(cwd, 'workspace', 'generated-images'))).rejects.toThrow()
   })
 
-  it('preserves generate_image tool history when continuing a Web session', async () => {
+  it('continues image generation without replaying raw prior image tool protocol', async () => {
     const cwd = await createTempCwd()
     await mkdir(join(cwd, 'workspace', 'project-a'))
     let imageIndex = 0
@@ -850,8 +850,24 @@ describe('startWebServer', () => {
           }]
         }
       }
+      if (callModel.mock.calls.length === 4) {
+        return { content: 'second image generated', toolCalls: [] }
+      }
+      if (callModel.mock.calls.length === 5) {
+        return {
+          content: '',
+          toolCalls: [{
+            id: 'call-third-image',
+            type: 'function',
+            function: {
+              name: 'generate_image',
+              arguments: JSON.stringify({ prompt: 'third portrait', seed: 3 })
+            }
+          }]
+        }
+      }
 
-      return { content: 'second image generated', toolCalls: [] }
+      return { content: 'third image generated', toolCalls: [] }
     })
     const server = await startWebServer({
       cwd,
@@ -884,21 +900,35 @@ describe('startWebServer', () => {
     const { body: secondStreamBody } = await readRunEventStream(`${server.url}/api/runs/${secondBody.runId}/events`)
 
     expect(secondStreamBody).toContain('generated-images/web-image-2.png')
+    expect(JSON.stringify(modelMessages[2])).not.toContain('"role":"tool"')
+    expect(JSON.stringify(modelMessages[2])).not.toContain('"tool_calls"')
     expect(modelMessages[2]).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        role: 'assistant',
-        tool_calls: [expect.objectContaining({
-          id: 'call-first-image',
-          function: expect.objectContaining({ name: 'generate_image' })
-        })]
-      }),
-      expect.objectContaining({
-        role: 'tool',
-        tool_call_id: 'call-first-image',
-        content: expect.stringContaining('generated-images/web-image-1.png')
-      }),
+      expect.objectContaining({ role: 'assistant', content: expect.stringContaining('generated-images/web-image-1.png') }),
       { role: 'assistant', content: 'first image generated' },
       { role: 'user', content: 'generate another image' }
+    ]))
+
+    const thirdResponse = await fetch(`${server.url}/api/runs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        sessionId: firstBody.sessionId,
+        message: 'generate a third image',
+        workspaceId: 'project-a'
+      })
+    })
+    expect(thirdResponse.status).toBe(202)
+    const thirdBody = (await thirdResponse.json()) as { runId: string }
+    const { body: thirdStreamBody } = await readRunEventStream(`${server.url}/api/runs/${thirdBody.runId}/events`)
+
+    expect(thirdStreamBody).toContain('generated-images/web-image-3.png')
+    expect(JSON.stringify(modelMessages[4])).not.toContain('"role":"tool"')
+    expect(JSON.stringify(modelMessages[4])).not.toContain('"tool_calls"')
+    expect(modelMessages[4]).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: 'assistant', content: expect.stringContaining('generated-images/web-image-1.png') }),
+      expect.objectContaining({ role: 'assistant', content: expect.stringContaining('generated-images/web-image-2.png') }),
+      { role: 'assistant', content: 'second image generated' },
+      { role: 'user', content: 'generate a third image' }
     ]))
   })
 

@@ -56,6 +56,17 @@ describe('web static helpers', () => {
     expect(html).not.toContain('<one>')
   })
 
+  it('renders safe full-line Markdown PNG links as image previews', () => {
+    const html = renderMarkdownHtml('[Portrait <one>](generated-images/portrait.png)', {
+      workspaceId: 'project-a'
+    })
+
+    expect(html).toContain('<img')
+    expect(html).toContain('alt="Portrait &lt;one&gt;"')
+    expect(html).toContain('src="/api/workspaces/project-a/files/generated-images/portrait.png"')
+    expect(html).not.toContain('<one>')
+  })
+
   it.each([
     '../secret.png',
     '/tmp/secret.png',

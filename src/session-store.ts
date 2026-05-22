@@ -201,12 +201,13 @@ export async function loadSession(input: {
 
   const messages: SessionDisplayMessage[] = []
   const modelMessages: ChatMessage[] = []
+  const toolNamesById = new Map<string, string>()
   for (const event of events) {
     if (event.type === 'message') {
       if (isDisplayMessage(event.message)) {
         messages.push({ role: event.message.role, content: event.message.content })
       }
-      modelMessages.push(copyModelMessage(event.message))
+      modelMessages.push(...restoreModelMessages(event.message, toolNamesById))
       continue
     }
     messages.push({ role: 'error', content: event.message })
@@ -263,6 +264,29 @@ function isValidToolCallMetadata(message: Record<string, unknown>): boolean {
 
 function isDisplayMessage(message: ChatMessage): message is ChatMessage & { role: 'user' | 'assistant' } {
   return (message.role === 'user' || message.role === 'assistant') && message.content.trim() !== ''
+}
+
+function restoreModelMessages(message: ChatMessage, toolNamesById: Map<string, string>): ChatMessage[] {
+  if (message.role === 'assistant' && message.tool_calls !== undefined) {
+    for (const toolCall of message.tool_calls) {
+      toolNamesById.set(toolCall.id, toolCall.function.name)
+    }
+    if (message.tool_calls.every((toolCall) => toolCall.function.name === 'generate_image')) {
+      return []
+    }
+  }
+
+  if (message.role === 'tool' && toolNamesById.get(message.tool_call_id ?? '') === 'generate_image') {
+    return [{
+      role: 'assistant',
+      content: [
+        'Previous generate_image result (history only; call generate_image again for new image requests):',
+        message.content
+      ].join('\n')
+    }]
+  }
+
+  return [copyModelMessage(message)]
 }
 
 function copyModelMessage(message: ChatMessage): ChatMessage {

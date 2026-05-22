@@ -101,7 +101,7 @@ export function renderMarkdownHtml(markdown, options = {}) {
       flushList()
       continue
     }
-    const image = parseMarkdownImageLine(line)
+    const image = parseMarkdownImagePreviewLine(line)
     if (image && isSafeMarkdownImagePath(image.path)) {
       flushParagraph()
       flushList()
@@ -144,8 +144,8 @@ export function renderMarkdownHtml(markdown, options = {}) {
   return parts.join('')
 }
 
-function parseMarkdownImageLine(line) {
-  const match = line.trim().match(/^!\[([^\]]*)\]\(([^)]*)\)$/)
+function parseMarkdownImagePreviewLine(line) {
+  const match = line.trim().match(/^!?\[([^\]]*)\]\(([^)]*)\)$/)
   if (!match) {
     return null
   }

@@ -78,7 +78,7 @@ describe('session store', () => {
     )
   })
 
-  it('loads tool-call messages for model history without showing them in the transcript', async () => {
+  it('loads generate_image tool results as model history without replaying raw tool protocol', async () => {
     const cwd = await createTempCwd()
     const session = await createSession({
       cwd,
@@ -138,7 +138,8 @@ describe('session store', () => {
         preview: 'Image generated.'
       })
     ])
-    await expect(loadSession({ cwd, sessionId: session.id, recentMessages: 10 })).resolves.toEqual({
+    const loaded = await loadSession({ cwd, sessionId: session.id, recentMessages: 10 })
+    expect(loaded).toEqual({
       session: expect.objectContaining({ id: 'tool-session' }),
       messages: [
         { role: 'user', content: 'Generate an image' },
@@ -148,24 +149,13 @@ describe('session store', () => {
         { role: 'user', content: 'Generate an image' },
         {
           role: 'assistant',
-          content: '',
-          tool_calls: [{
-            id: 'call-image',
-            type: 'function',
-            function: {
-              name: 'generate_image',
-              arguments: '{"prompt":"portrait"}'
-            }
-          }]
-        },
-        {
-          role: 'tool',
-          content: 'Generated images: generated-images/image.png',
-          tool_call_id: 'call-image'
+          content: expect.stringContaining('generated-images/image.png')
         },
         { role: 'assistant', content: 'Image generated.' }
       ]
     })
+    expect(JSON.stringify(loaded?.modelMessages)).not.toContain('"role":"tool"')
+    expect(JSON.stringify(loaded?.modelMessages)).not.toContain('"tool_calls"')
   })
 
   it('keeps unsafe session ids out of the session directory', async () => {
