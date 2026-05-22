@@ -7,6 +7,8 @@ const MAX_PIXELS = 1024 * 1024
 const MIN_DIMENSION = 64
 const MAX_DIMENSION = 1024
 
+type DetailTarget = 'auto' | 'face' | 'hand' | 'person'
+
 interface GenerateImageArgs {
   prompt: string
   negative_prompt?: string
@@ -16,6 +18,23 @@ interface GenerateImageArgs {
   cfg_scale?: number
   seed?: number
   count?: number
+  realism_preset?: boolean
+  hires_fix?: boolean
+  hires_scale?: number
+  hires_steps?: number
+  hires_denoise?: number
+  bmab_postprocess?: boolean
+  bmab_noise_alpha?: number
+  bmab_contrast?: number
+  bmab_brightness?: number
+  bmab_color_temperature?: number
+  eye_refine?: boolean
+  eye_refine_strength?: number
+  eye_refine_steps?: number
+  detail_enhance?: boolean
+  detail_targets?: DetailTarget
+  detail_strength?: number
+  return_intermediate?: boolean
 }
 
 const dimensionSchema = z.number()
@@ -32,7 +51,24 @@ const schema: z.ZodType<GenerateImageArgs> = z.object({
   steps: z.number().int().positive().default(30),
   cfg_scale: z.number().positive().default(7),
   seed: z.number().int().optional(),
-  count: z.number().int().min(1).max(4).default(1)
+  count: z.number().int().min(1).max(4).default(1),
+  realism_preset: z.boolean().default(false),
+  hires_fix: z.boolean().default(false),
+  hires_scale: z.number().min(1).max(4).default(2),
+  hires_steps: z.number().int().positive().default(15),
+  hires_denoise: z.number().min(0.05).max(0.5).default(0.15),
+  bmab_postprocess: z.boolean().default(false),
+  bmab_noise_alpha: z.number().min(0).max(0.5).default(0.05),
+  bmab_contrast: z.number().positive().default(0.9),
+  bmab_brightness: z.number().positive().default(1.1),
+  bmab_color_temperature: z.number().min(-100).max(100).default(15),
+  eye_refine: z.boolean().default(false),
+  eye_refine_strength: z.number().min(0.05).max(0.3).default(0.12),
+  eye_refine_steps: z.number().int().positive().default(12),
+  detail_enhance: z.boolean().default(false),
+  detail_targets: z.enum(['auto', 'face', 'hand', 'person']).default('auto'),
+  detail_strength: z.number().min(0.1).max(0.7).default(0.35),
+  return_intermediate: z.boolean().default(false)
 })
 
 const workerResponseSchema = z.object({
@@ -41,7 +77,15 @@ const workerResponseSchema = z.object({
     path: z.string().min(1),
     seed: z.number().int(),
     width: z.number().int(),
-    height: z.number().int()
+    height: z.number().int(),
+    hires_upscaled: z.boolean().optional(),
+    hires_scale: z.number().optional(),
+    postprocessed: z.boolean().optional(),
+    eye_refined: z.boolean().optional(),
+    eye_regions: z.number().int().nonnegative().optional(),
+    detail_enhanced: z.boolean().optional(),
+    detail_regions: z.number().int().nonnegative().optional(),
+    detail_targets: z.array(z.string()).optional()
   })).nonempty()
 })
 
@@ -53,6 +97,23 @@ type GenerateImageRequest = {
   steps: number
   cfg_scale: number
   count: number
+  realism_preset: boolean
+  hires_fix: boolean
+  hires_scale: number
+  hires_steps: number
+  hires_denoise: number
+  bmab_postprocess: boolean
+  bmab_noise_alpha: number
+  bmab_contrast: number
+  bmab_brightness: number
+  bmab_color_temperature: number
+  eye_refine: boolean
+  eye_refine_strength: number
+  eye_refine_steps: number
+  detail_enhance: boolean
+  detail_targets: DetailTarget
+  detail_strength: number
+  return_intermediate: boolean
   output_dir: string
   seed?: number
 }
@@ -113,14 +174,32 @@ function resolveOutputDir(cwd: string, outputDir: string): { ok: true; path: str
 }
 
 function normalizeArgs(args: GenerateImageArgs, outputDir: string): GenerateImageRequest {
+  const realismPreset = args.realism_preset ?? false
   const request: GenerateImageRequest = {
     prompt: args.prompt,
     negative_prompt: args.negative_prompt ?? '',
     width: args.width ?? 512,
     height: args.height ?? 768,
     steps: args.steps ?? 30,
-    cfg_scale: args.cfg_scale ?? 7,
+    cfg_scale: args.cfg_scale ?? (realismPreset ? 6 : 7),
     count: args.count ?? 1,
+    realism_preset: realismPreset,
+    hires_fix: args.hires_fix ?? false,
+    hires_scale: args.hires_scale ?? 2,
+    hires_steps: args.hires_steps ?? 15,
+    hires_denoise: args.hires_denoise ?? 0.15,
+    bmab_postprocess: args.bmab_postprocess ?? false,
+    bmab_noise_alpha: args.bmab_noise_alpha ?? 0.05,
+    bmab_contrast: args.bmab_contrast ?? 0.9,
+    bmab_brightness: args.bmab_brightness ?? 1.1,
+    bmab_color_temperature: args.bmab_color_temperature ?? 15,
+    eye_refine: args.eye_refine ?? false,
+    eye_refine_strength: args.eye_refine_strength ?? 0.12,
+    eye_refine_steps: args.eye_refine_steps ?? 12,
+    detail_enhance: args.detail_enhance ?? false,
+    detail_targets: args.detail_targets ?? 'auto',
+    detail_strength: args.detail_strength ?? (realismPreset ? 0.2 : 0.35),
+    return_intermediate: args.return_intermediate ?? false,
     output_dir: outputDir
   }
 
@@ -181,7 +260,24 @@ export const generateImageTool: Tool<GenerateImageArgs> = {
       steps: { type: 'number', description: 'Diffusion step count. Defaults to 30.' },
       cfg_scale: { type: 'number', description: 'Classifier-free guidance scale. Defaults to 7.' },
       seed: { type: 'number', description: 'Optional generation seed.' },
-      count: { type: 'number', description: 'Number of images to generate, 1 to 4. Defaults to 1.' }
+      count: { type: 'number', description: 'Number of images to generate, 1 to 4. Defaults to 1.' },
+      realism_preset: { type: 'boolean', description: 'Whether to apply conservative prompt and parameter defaults for more realistic photos. Defaults to false.' },
+      hires_fix: { type: 'boolean', description: 'Whether to run a high-resolution upscale plus low-denoise img2img pass. Defaults to false.' },
+      hires_scale: { type: 'number', description: 'Hires upscale factor, 1 to 4. Defaults to 2.' },
+      hires_steps: { type: 'number', description: 'Hires img2img step count. Defaults to 15.' },
+      hires_denoise: { type: 'number', description: 'Hires img2img denoising strength, 0.05 to 0.5. Defaults to 0.15.' },
+      bmab_postprocess: { type: 'boolean', description: 'Whether to apply lightweight BMAB-like noise, contrast, brightness, and color-temperature postprocess. Defaults to false.' },
+      bmab_noise_alpha: { type: 'number', description: 'BMAB-like final noise opacity, 0 to 0.5. Defaults to 0.05.' },
+      bmab_contrast: { type: 'number', description: 'BMAB-like contrast multiplier. Defaults to 0.9.' },
+      bmab_brightness: { type: 'number', description: 'BMAB-like brightness multiplier. Defaults to 1.1.' },
+      bmab_color_temperature: { type: 'number', description: 'BMAB-like color temperature shift, -100 to 100. Defaults to 15.' },
+      eye_refine: { type: 'boolean', description: 'Whether to run an extra low-strength eye-area refine pass after face detection. Defaults to false.' },
+      eye_refine_strength: { type: 'number', description: 'Eye refine denoising strength, 0.05 to 0.3. Defaults to 0.12.' },
+      eye_refine_steps: { type: 'number', description: 'Eye refine img2img step count. Defaults to 12.' },
+      detail_enhance: { type: 'boolean', description: 'Whether to run optional detail enhancement after generation. Defaults to false.' },
+      detail_targets: { type: 'string', enum: ['auto', 'face', 'hand', 'person'], description: 'Detail enhancement target selection. Defaults to auto.' },
+      detail_strength: { type: 'number', description: 'Detail enhancement denoising strength, 0.1 to 0.7. Defaults to 0.35.' },
+      return_intermediate: { type: 'boolean', description: 'Whether the worker should return intermediate detail enhancement artifacts. Defaults to false.' }
     },
     required: ['prompt'],
     additionalProperties: false
@@ -266,12 +362,38 @@ export const generateImageTool: Tool<GenerateImageArgs> = {
     }
 
     const imageLines = images.flatMap((image, index) => {
-      return [
+      const lines = [
         `${index + 1}. absolute path: ${image.path}`,
         `   relative path: ${toRelativeDisplayPath(canonicalCwd, image.path)}`,
         `   seed: ${image.seed}`,
         `   size: ${image.width}x${image.height}`
       ]
+      if (image.detail_regions !== undefined) {
+        if (image.detail_regions > 0 && image.detail_enhanced === true) {
+          lines.push(`   detail: enhanced ${image.detail_regions} regions`)
+        } else if (image.detail_regions > 0) {
+          lines.push(`   detail: detected ${image.detail_regions} regions but enhancement was not applied`)
+        } else {
+          lines.push('   detail: no regions detected')
+        }
+      }
+      if (image.hires_upscaled === true) {
+        lines.push(`   hires: ${image.hires_scale ?? request.hires_scale}x`)
+      }
+      if (image.postprocessed === true) {
+        lines.push('   postprocess: BMAB-like')
+      }
+      if (image.eye_regions !== undefined) {
+        if (image.eye_regions > 0 && image.eye_refined === true) {
+          lines.push(`   eye refine: enhanced ${image.eye_regions} regions`)
+        } else if (image.eye_regions === 0) {
+          lines.push('   eye refine: no eye regions estimated')
+        }
+      }
+      if (image.detail_targets !== undefined && image.detail_targets.length > 0) {
+        lines.push(`   targets: ${image.detail_targets.join(', ')}`)
+      }
+      return lines
     })
 
     const imageWord = images.length === 1 ? 'image' : 'images'

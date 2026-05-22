@@ -73,6 +73,77 @@ If no variables are provided, it uses:
 - `PORT=8080`
 - `PYTHON=./.venv/bin/python`, falling back to `python3` or `python`
 
+## Optional Local Image Generation
+
+The agent can call a local SD1.5 text-to-image worker through the `generate_image` tool. The worker is optional; normal chat, REPL, and web UI flows still work without it.
+
+Place local image assets under the ignored `T2I/` directory. The current defaults expect:
+
+- `T2I/majicmixRealistic_v7.safetensors`
+- `T2I/adetailer/face_yolov8n.pt`
+- `T2I/adetailer/hand_yolov8n.pt`
+- `T2I/adetailer/person_yolov8n-seg.pt`
+
+Start the worker with:
+
+```bash
+./server/start-t2i.sh
+```
+
+The launcher creates and reuses `.venv-t2i`, installs `requirements-t2i.txt` when needed, and defaults to Hugging Face offline mode for local safetensors checkpoints. Detail detector dependencies remain opt-in:
+
+```bash
+T2I_INSTALL_DETAIL_DEPS=1 ./server/start-t2i.sh
+```
+
+Useful overrides:
+
+```bash
+T2I_BASE_URL=http://127.0.0.1:7861
+T2I_MODEL_PATH=./T2I/majicmixRealistic_v7.safetensors
+T2I_OUTPUT_DIR=generated-images
+T2I_FACE_DETECTOR_MODEL=./T2I/adetailer/face_yolov8n.pt
+T2I_HAND_DETECTOR_MODEL=./T2I/adetailer/hand_yolov8n.pt
+T2I_PERSON_DETECTOR_MODEL=./T2I/adetailer/person_yolov8n-seg.pt
+```
+
+Generated files are written under `T2I_OUTPUT_DIR`, resolved relative to the active workspace. In the web UI that means the selected workspace, so Markdown image links such as `![image](generated-images/example.png)` can be previewed through the workspace file viewer.
+
+The `generate_image` tool supports:
+
+- base text-to-image parameters: `prompt`, `negative_prompt`, `width`, `height`, `steps`, `cfg_scale`, `seed`, `count`
+- realism defaults with `realism_preset`
+- Hires-style upscaling with `hires_fix`, `hires_scale`, `hires_steps`, `hires_denoise`
+- ADetailer-style local refinement with `detail_enhance`, `detail_targets`, `detail_strength`
+- eye-area refinement with `eye_refine`, `eye_refine_strength`, `eye_refine_steps`
+- lightweight BMAB-like postprocess with `bmab_postprocess`, `bmab_noise_alpha`, `bmab_contrast`, `bmab_brightness`, `bmab_color_temperature`
+
+For realistic portraits, a conservative starting point is:
+
+```json
+{
+  "width": 512,
+  "height": 768,
+  "steps": 20,
+  "cfg_scale": 7,
+  "hires_fix": true,
+  "hires_scale": 2,
+  "hires_steps": 15,
+  "hires_denoise": 0.15,
+  "detail_enhance": true,
+  "detail_targets": "face",
+  "detail_strength": 0.1,
+  "eye_refine": true,
+  "eye_refine_strength": 0.12,
+  "eye_refine_steps": 12,
+  "bmab_postprocess": true,
+  "bmab_noise_alpha": 0.05,
+  "bmab_contrast": 0.9,
+  "bmab_brightness": 1.1,
+  "bmab_color_temperature": 15
+}
+```
+
 ## Tests
 
 ```bash
@@ -85,4 +156,3 @@ The MLX tool-calling benchmark is not part of the default test suite because it 
 ```bash
 npm run benchmark:tool-calling
 ```
-

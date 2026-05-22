@@ -774,6 +774,23 @@ describe('startWebServer', () => {
       steps: 30,
       cfg_scale: 7,
       count: 1,
+      realism_preset: false,
+      hires_fix: false,
+      hires_scale: 2,
+      hires_steps: 15,
+      hires_denoise: 0.15,
+      bmab_postprocess: false,
+      bmab_noise_alpha: 0.05,
+      bmab_contrast: 0.9,
+      bmab_brightness: 1.1,
+      bmab_color_temperature: 15,
+      eye_refine: false,
+      eye_refine_strength: 0.12,
+      eye_refine_steps: 12,
+      detail_enhance: false,
+      detail_targets: 'auto',
+      detail_strength: 0.35,
+      return_intermediate: false,
       output_dir: expectedOutputDir,
       seed: 9
     }])
@@ -1374,6 +1391,23 @@ interface MockT2IRequest {
   steps: number
   cfg_scale: number
   count: number
+  realism_preset: boolean
+  hires_fix: boolean
+  hires_scale: number
+  hires_steps: number
+  hires_denoise: number
+  bmab_postprocess: boolean
+  bmab_noise_alpha: number
+  bmab_contrast: number
+  bmab_brightness: number
+  bmab_color_temperature: number
+  eye_refine: boolean
+  eye_refine_strength: number
+  eye_refine_steps: number
+  detail_enhance: boolean
+  detail_targets: 'auto' | 'face' | 'hand' | 'person'
+  detail_strength: number
+  return_intermediate: boolean
   output_dir: string
   seed?: number
 }
