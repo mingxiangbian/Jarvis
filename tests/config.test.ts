@@ -21,16 +21,25 @@ describe('createDefaultConfig', () => {
 
     expect(config.t2i.baseUrl).toBe('http://127.0.0.1:7861')
     expect(config.t2i.outputDir).toBe('generated-images')
+    expect(config.t2i.autoStart).toBe(true)
+    expect(config.t2i.startCommand).toBe('./server/start-t2i.sh')
+    expect(config.t2i.startTimeoutMs).toBe(120_000)
   })
 
   it('uses local T2I environment overrides when present', () => {
     vi.stubEnv('T2I_BASE_URL', 'http://127.0.0.1:9998')
     vi.stubEnv('T2I_OUTPUT_DIR', 'custom-images')
+    vi.stubEnv('T2I_AUTO_START', '0')
+    vi.stubEnv('T2I_START_COMMAND', './custom-t2i.sh')
+    vi.stubEnv('T2I_START_TIMEOUT_MS', '45000')
 
     const config = createDefaultConfig('/tmp/project')
 
     expect(config.t2i.baseUrl).toBe('http://127.0.0.1:9998')
     expect(config.t2i.outputDir).toBe('custom-images')
+    expect(config.t2i.autoStart).toBe(false)
+    expect(config.t2i.startCommand).toBe('./custom-t2i.sh')
+    expect(config.t2i.startTimeoutMs).toBe(45_000)
   })
 
   it('keeps v1 safety and context limits explicit', () => {

@@ -1,11 +1,15 @@
+import { spawn, type ChildProcess } from 'node:child_process'
 import { mkdir, realpath } from 'node:fs/promises'
 import { dirname, isAbsolute, relative, resolve } from 'node:path'
+import { setTimeout as delay } from 'node:timers/promises'
 import { z } from 'zod'
-import type { Tool } from './types.js'
+import type { Tool, ToolContext } from './types.js'
 
 const MAX_PIXELS = 1024 * 1024
 const MIN_DIMENSION = 64
 const MAX_DIMENSION = 1024
+const T2I_HEALTH_TIMEOUT_MS = 2_000
+const T2I_START_POLL_MS = 500
 
 type DetailTarget = 'auto' | 'face' | 'hand' | 'person'
 
@@ -287,8 +291,134 @@ function normalizeArgs(
   }
 }
 
+function workerEndpoint(baseUrl: string, path: string): string {
+  return `${baseUrl.replace(/\/+$/, '')}${path}`
+}
+
 function endpoint(baseUrl: string): string {
-  return `${baseUrl.replace(/\/+$/, '')}/generate`
+  return workerEndpoint(baseUrl, '/generate')
+}
+
+function healthEndpoint(baseUrl: string): string {
+  return workerEndpoint(baseUrl, '/health')
+}
+
+async function isWorkerHealthy(baseUrl: string): Promise<boolean> {
+  try {
+    const response = await fetch(healthEndpoint(baseUrl), {
+      method: 'GET',
+      signal: AbortSignal.timeout(T2I_HEALTH_TIMEOUT_MS)
+    })
+    return response.ok
+  } catch {
+    return false
+  }
+}
+
+function startCommandForUser(command: string): string {
+  return `T2I_INSTALL_DETAIL_DEPS=1 ${command}`
+}
+
+function t2iStartEnv(baseUrl: string): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    T2I_INSTALL_DETAIL_DEPS: process.env.T2I_INSTALL_DETAIL_DEPS ?? '1'
+  }
+
+  try {
+    const url = new URL(baseUrl)
+    if (url.hostname !== '') {
+      env.T2I_HOST = url.hostname
+    }
+    if (url.port !== '') {
+      env.T2I_PORT = url.port
+    }
+  } catch {
+    // Invalid base URLs are surfaced by the fetch calls that use them.
+  }
+
+  return env
+}
+
+type ManagedT2IWorker = {
+  process: ChildProcess
+}
+
+function startT2IWorker(config: ToolContext['config']): ManagedT2IWorker {
+  const child = spawn(config.t2i.startCommand, {
+    cwd: config.cwd,
+    detached: true,
+    env: t2iStartEnv(config.t2i.baseUrl),
+    shell: true,
+    stdio: 'ignore'
+  })
+  return { process: child }
+}
+
+async function waitForT2IWorker(baseUrl: string, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() <= deadline) {
+    if (await isWorkerHealthy(baseUrl)) {
+      return true
+    }
+    const remainingMs = deadline - Date.now()
+    if (remainingMs <= 0) {
+      break
+    }
+    await delay(Math.min(T2I_START_POLL_MS, remainingMs))
+  }
+  return false
+}
+
+function stopT2IWorker(worker: ManagedT2IWorker): void {
+  if (worker.process.killed) {
+    return
+  }
+
+  if (worker.process.pid !== undefined) {
+    try {
+      process.kill(-worker.process.pid, 'SIGTERM')
+      return
+    } catch {
+      // Fall back to the child handle when process-group signaling is unavailable.
+    }
+  }
+
+  worker.process.kill('SIGTERM')
+}
+
+async function ensureT2IWorker(config: ToolContext['config']): Promise<
+  | { ok: true; managed?: ManagedT2IWorker }
+  | { ok: false; content: string }
+> {
+  if (await isWorkerHealthy(config.t2i.baseUrl)) {
+    return { ok: true }
+  }
+
+  if (!config.t2i.autoStart) {
+    return {
+      ok: false,
+      content: [
+        `T2I worker is not running at ${config.t2i.baseUrl}.`,
+        `Start it manually with: ${startCommandForUser(config.t2i.startCommand)}`
+      ].join('\n')
+    }
+  }
+
+  const managed = startT2IWorker(config)
+  const isReady = await waitForT2IWorker(config.t2i.baseUrl, config.t2i.startTimeoutMs)
+  if (isReady) {
+    return { ok: true, managed }
+  }
+
+  stopT2IWorker(managed)
+  return {
+    ok: false,
+    content: [
+      `T2I worker auto-start timed out after ${config.t2i.startTimeoutMs}ms at ${config.t2i.baseUrl}.`,
+      `Start it manually with: ${startCommandForUser(config.t2i.startCommand)}`
+    ].join('\n')
+  }
 }
 
 async function readWorkerJson(response: Response): Promise<unknown> {
@@ -394,122 +524,133 @@ export const generateImageTool: Tool<GenerateImageArgs> = {
     }
     request.output_dir = canonicalOutputDir
 
-    let response: Response
+    const worker = await ensureT2IWorker(context.config)
+    if (!worker.ok) {
+      return worker
+    }
+
     try {
-      response = await fetch(endpoint(context.config.t2i.baseUrl), {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(request)
-      })
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      return { ok: false, content: `T2I worker request failed: ${message}` }
-    }
-
-    if (!response.ok) {
-      const body = await response.text()
-      return {
-        ok: false,
-        content: `T2I worker returned HTTP ${response.status} ${response.statusText}: ${body}`
+      let response: Response
+      try {
+        response = await fetch(endpoint(context.config.t2i.baseUrl), {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(request)
+        })
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        return { ok: false, content: `T2I worker request failed: ${message}` }
       }
-    }
 
-    let workerJson: unknown
-    try {
-      workerJson = await readWorkerJson(response)
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      return { ok: false, content: `T2I worker returned ${message}` }
-    }
-
-    const parsed = workerResponseSchema.safeParse(workerJson)
-    if (!parsed.success) {
-      return { ok: false, content: `T2I worker returned unexpected response: ${parsed.error.message}` }
-    }
-
-    if (parsed.data.images.length !== request.count) {
-      return {
-        ok: false,
-        content: `T2I worker returned image count mismatch: expected ${request.count} images but received ${parsed.data.images.length}.`
-      }
-    }
-
-    const images = []
-    for (const image of parsed.data.images) {
-      const imagePath = await resolveWorkerImagePath(image.path, canonicalOutputDir)
-      if (!imagePath.ok) {
-        return imagePath
-      }
-      images.push({ ...image, path: imagePath.path })
-    }
-
-    const imageLines = images.flatMap((image, index) => {
-      const lines = [
-        `${index + 1}. absolute path: ${image.path}`,
-        `   relative path: ${toRelativeDisplayPath(canonicalCwd, image.path)}`,
-        `   seed: ${image.seed}`,
-        `   size: ${image.width}x${image.height}`
-      ]
-      if (image.detail_regions !== undefined) {
-        if (image.detail_regions > 0 && image.detail_enhanced === true) {
-          lines.push(`   detail: enhanced ${image.detail_regions} regions`)
-        } else if (image.detail_regions > 0) {
-          lines.push(`   detail: detected ${image.detail_regions} regions but enhancement was not applied`)
-        } else {
-          lines.push('   detail: no regions detected')
+      if (!response.ok) {
+        const body = await response.text()
+        return {
+          ok: false,
+          content: `T2I worker returned HTTP ${response.status} ${response.statusText}: ${body}`
         }
       }
-      if (image.hires_upscaled === true) {
-        lines.push(`   hires: ${image.hires_scale ?? request.hires_scale}x`)
+
+      let workerJson: unknown
+      try {
+        workerJson = await readWorkerJson(response)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        return { ok: false, content: `T2I worker returned ${message}` }
       }
-      if (image.postprocessed === true) {
-        lines.push('   postprocess: BMAB-like')
+
+      const parsed = workerResponseSchema.safeParse(workerJson)
+      if (!parsed.success) {
+        return { ok: false, content: `T2I worker returned unexpected response: ${parsed.error.message}` }
       }
-      if (image.eye_regions !== undefined) {
-        if (image.eye_regions > 0 && image.eye_refined === true) {
-          lines.push(`   eye refine: enhanced ${image.eye_regions} regions`)
-        } else if (image.eye_regions === 0) {
-          lines.push('   eye refine: no eye regions estimated')
+
+      if (parsed.data.images.length !== request.count) {
+        return {
+          ok: false,
+          content: `T2I worker returned image count mismatch: expected ${request.count} images but received ${parsed.data.images.length}.`
         }
       }
-      if (image.detail_targets !== undefined && image.detail_targets.length > 0) {
-        lines.push(`   targets: ${image.detail_targets.join(', ')}`)
-      }
-      if (image.dynamic_thresholding !== undefined) {
-        lines.push(`   dynamic thresholding: ${image.dynamic_thresholding ? 'enabled' : 'disabled'}`)
-      }
-      return lines
-    })
 
-    const imageWord = images.length === 1 ? 'image' : 'images'
-    const adjustmentLines = normalized.presetAdjustments.length === 0
-      ? ['adjusted: none']
-      : normalized.presetAdjustments
-        .map((adjustment) => `adjusted: ${adjustment.field} ${String(adjustment.from)} -> ${String(adjustment.to)}`)
-    const presetLines = normalized.preset === undefined
-      ? []
-      : [
-          `preset: ${normalized.preset}`,
-          ...adjustmentLines
+      const images = []
+      for (const image of parsed.data.images) {
+        const imagePath = await resolveWorkerImagePath(image.path, canonicalOutputDir)
+        if (!imagePath.ok) {
+          return imagePath
+        }
+        images.push({ ...image, path: imagePath.path })
+      }
+
+      const imageLines = images.flatMap((image, index) => {
+        const lines = [
+          `${index + 1}. absolute path: ${image.path}`,
+          `   relative path: ${toRelativeDisplayPath(canonicalCwd, image.path)}`,
+          `   seed: ${image.seed}`,
+          `   size: ${image.width}x${image.height}`
         ]
-    return {
-      ok: true,
-      content: [
-        `Generated ${images.length} ${imageWord} with ${parsed.data.model}.`,
-        ...presetLines,
-        `dynamic thresholding: ${request.dynamic_thresholding ? 'enabled' : 'disabled'}`,
-        ...imageLines
-      ].join('\n'),
-      metadata: {
-        model: parsed.data.model,
-        images,
-        preset: normalized.preset,
-        preset_adjustments: normalized.presetAdjustments,
-        dynamic_thresholding: {
-          enabled: request.dynamic_thresholding,
-          mimic_scale: request.dynamic_thresholding_mimic_scale,
-          percentile: request.dynamic_thresholding_percentile
+        if (image.detail_regions !== undefined) {
+          if (image.detail_regions > 0 && image.detail_enhanced === true) {
+            lines.push(`   detail: enhanced ${image.detail_regions} regions`)
+          } else if (image.detail_regions > 0) {
+            lines.push(`   detail: detected ${image.detail_regions} regions but enhancement was not applied`)
+          } else {
+            lines.push('   detail: no regions detected')
+          }
         }
+        if (image.hires_upscaled === true) {
+          lines.push(`   hires: ${image.hires_scale ?? request.hires_scale}x`)
+        }
+        if (image.postprocessed === true) {
+          lines.push('   postprocess: BMAB-like')
+        }
+        if (image.eye_regions !== undefined) {
+          if (image.eye_regions > 0 && image.eye_refined === true) {
+            lines.push(`   eye refine: enhanced ${image.eye_regions} regions`)
+          } else if (image.eye_regions === 0) {
+            lines.push('   eye refine: no eye regions estimated')
+          }
+        }
+        if (image.detail_targets !== undefined && image.detail_targets.length > 0) {
+          lines.push(`   targets: ${image.detail_targets.join(', ')}`)
+        }
+        if (image.dynamic_thresholding !== undefined) {
+          lines.push(`   dynamic thresholding: ${image.dynamic_thresholding ? 'enabled' : 'disabled'}`)
+        }
+        return lines
+      })
+
+      const imageWord = images.length === 1 ? 'image' : 'images'
+      const adjustmentLines = normalized.presetAdjustments.length === 0
+        ? ['adjusted: none']
+        : normalized.presetAdjustments
+          .map((adjustment) => `adjusted: ${adjustment.field} ${String(adjustment.from)} -> ${String(adjustment.to)}`)
+      const presetLines = normalized.preset === undefined
+        ? []
+        : [
+            `preset: ${normalized.preset}`,
+            ...adjustmentLines
+          ]
+      return {
+        ok: true,
+        content: [
+          `Generated ${images.length} ${imageWord} with ${parsed.data.model}.`,
+          ...presetLines,
+          `dynamic thresholding: ${request.dynamic_thresholding ? 'enabled' : 'disabled'}`,
+          ...imageLines
+        ].join('\n'),
+        metadata: {
+          model: parsed.data.model,
+          images,
+          preset: normalized.preset,
+          preset_adjustments: normalized.presetAdjustments,
+          dynamic_thresholding: {
+            enabled: request.dynamic_thresholding,
+            mimic_scale: request.dynamic_thresholding_mimic_scale,
+            percentile: request.dynamic_thresholding_percentile
+          }
+        }
+      }
+    } finally {
+      if (worker.managed !== undefined) {
+        stopT2IWorker(worker.managed)
       }
     }
   }

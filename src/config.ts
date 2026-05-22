@@ -10,6 +10,9 @@ export interface ModelConfig {
 export interface T2IConfig {
   baseUrl: string
   outputDir: string
+  autoStart: boolean
+  startCommand: string
+  startTimeoutMs: number
 }
 
 export interface AppConfig {
@@ -42,6 +45,21 @@ export interface AppConfig {
   bashDenyPatterns: RegExp[]
 }
 
+function parseBooleanEnv(value: string | undefined, defaultValue: boolean): boolean {
+  if (value === undefined) {
+    return defaultValue
+  }
+  return !['0', 'false', 'no', 'off'].includes(value.trim().toLowerCase())
+}
+
+function parsePositiveIntEnv(value: string | undefined, defaultValue: number): number {
+  if (value === undefined) {
+    return defaultValue
+  }
+  const parsed = Number.parseInt(value, 10)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : defaultValue
+}
+
 export function createDefaultConfig(cwd: string): AppConfig {
   return {
     cwd,
@@ -52,7 +70,10 @@ export function createDefaultConfig(cwd: string): AppConfig {
     },
     t2i: {
       baseUrl: process.env.T2I_BASE_URL ?? 'http://127.0.0.1:7861',
-      outputDir: process.env.T2I_OUTPUT_DIR ?? 'generated-images'
+      outputDir: process.env.T2I_OUTPUT_DIR ?? 'generated-images',
+      autoStart: parseBooleanEnv(process.env.T2I_AUTO_START, true),
+      startCommand: process.env.T2I_START_COMMAND ?? './server/start-t2i.sh',
+      startTimeoutMs: parsePositiveIntEnv(process.env.T2I_START_TIMEOUT_MS, 120_000)
     },
     maxToolCallsPerTurn: 10,
     contextWindowTokens: 256_000,

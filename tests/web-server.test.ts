@@ -1418,6 +1418,12 @@ interface MockT2IRequest {
 
 async function startMockT2IServer(respond: (body: MockT2IRequest) => unknown): Promise<string> {
   const server = createServer(async (request, response) => {
+    if (request.method === 'GET' && request.url === '/health') {
+      response.writeHead(200, { 'content-type': 'application/json' })
+      response.end(JSON.stringify({ ok: true, model: 'mock-t2i' }))
+      return
+    }
+
     if (request.method !== 'POST' || request.url !== '/generate') {
       response.writeHead(404, { 'content-type': 'application/json' })
       response.end(JSON.stringify({ error: 'not found' }))

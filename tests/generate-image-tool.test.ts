@@ -6,11 +6,19 @@ import { createDefaultConfig, type AppConfig } from '../src/config.js'
 import { generateImageTool } from '../src/tools/generate-image.js'
 import { executeToolCall } from '../src/tools/index.js'
 
+const spawnMock = vi.hoisted(() => vi.fn())
+
+vi.mock('node:child_process', () => ({
+  spawn: spawnMock
+}))
+
 const tempRoots: string[] = []
 
 afterEach(async () => {
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
+  vi.unstubAllEnvs()
+  spawnMock.mockReset()
   await Promise.all(tempRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })))
 })
 
@@ -20,12 +28,16 @@ async function tempRoot(): Promise<string> {
   return root
 }
 
-function config(root: string, outputDir = 'generated-images'): AppConfig {
+function config(root: string, outputDir = 'generated-images', t2i: Partial<AppConfig['t2i']> = {}): AppConfig {
   return {
     ...createDefaultConfig(root),
     t2i: {
       baseUrl: 'http://127.0.0.1:7861',
-      outputDir
+      outputDir,
+      autoStart: false,
+      startCommand: './server/start-t2i.sh',
+      startTimeoutMs: 120_000,
+      ...t2i
     }
   }
 }
@@ -38,6 +50,46 @@ function mockJsonResponse(body: unknown, ok = true, status = 200): Response {
     json: async () => body,
     text: async () => JSON.stringify(body)
   } as Response
+}
+
+function mockHealthyT2IFetch(body: unknown, ok = true, status = 200): ReturnType<typeof vi.fn> {
+  return vi.fn(async (url: string, _init?: RequestInit) => {
+    if (String(url).endsWith('/health')) {
+      return mockJsonResponse({ ok: true, model: 'majicmixRealistic_v7' })
+    }
+    return mockJsonResponse(body, ok, status)
+  })
+}
+
+function generateRequestCall(fetchMock: ReturnType<typeof vi.fn>): [string, RequestInit] {
+  const call = fetchMock.mock.calls.find(([url]) => String(url).endsWith('/generate'))
+  if (call === undefined) {
+    throw new Error('Expected a /generate fetch call.')
+  }
+  return call as [string, RequestInit]
+}
+
+function generateRequestBody(fetchMock: ReturnType<typeof vi.fn>): Record<string, unknown> {
+  return JSON.parse(String(generateRequestCall(fetchMock)[1].body)) as Record<string, unknown>
+}
+
+function fakeChildProcess(kill = vi.fn()): { kill: ReturnType<typeof vi.fn> } {
+  const listeners = new Map<string, Array<(...args: unknown[]) => void>>()
+  return {
+    pid: 98765,
+    killed: false,
+    stdout: { on: vi.fn() },
+    stderr: { on: vi.fn() },
+    on: vi.fn((event: string, listener: (...args: unknown[]) => void) => {
+      listeners.set(event, [...(listeners.get(event) ?? []), listener])
+      return undefined
+    }),
+    once: vi.fn((event: string, listener: (...args: unknown[]) => void) => {
+      listeners.set(event, [...(listeners.get(event) ?? []), listener])
+      return undefined
+    }),
+    kill
+  } as never
 }
 
 async function pathExists(path: string): Promise<boolean> {
@@ -158,7 +210,7 @@ describe('generateImageTool', () => {
       method: 'POST',
       headers: { 'content-type': 'application/json' }
     }))
-    const sent = JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body))
+    const sent = generateRequestBody(fetchMock)
     expect(sent).toEqual({
       prompt: 'portrait photo',
       negative_prompt: '',
@@ -257,7 +309,7 @@ describe('generateImageTool', () => {
       { config: config(root), trackedFiles: new Set<string>() }
     )
 
-    const sent = JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body))
+    const sent = generateRequestBody(fetchMock)
     expect(result.ok).toBe(true)
     expect(sent).toMatchObject({
       width: 512,
@@ -377,7 +429,7 @@ describe('generateImageTool', () => {
       { config: config(root), trackedFiles: new Set<string>() }
     )
 
-    const sent = JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body))
+    const sent = generateRequestBody(fetchMock)
     expect(result.ok).toBe(true)
     expect(sent).toMatchObject({
       safe_preset: true,
@@ -422,7 +474,7 @@ describe('generateImageTool', () => {
       { config: config(root), trackedFiles: new Set<string>() }
     )
 
-    const sent = JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body))
+    const sent = generateRequestBody(fetchMock)
     expect(result.ok).toBe(true)
     expect(sent).toMatchObject({
       safe_preset: false,
@@ -468,7 +520,7 @@ describe('generateImageTool', () => {
       { config: config(root), trackedFiles: new Set<string>() }
     )
 
-    const sent = JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body))
+    const sent = generateRequestBody(fetchMock)
     expect(result.ok).toBe(true)
     expect(sent.width).toBe(768)
     expect(sent.height).toBe(512)
@@ -509,7 +561,7 @@ describe('generateImageTool', () => {
       { config: config(root), trackedFiles: new Set<string>() }
     )
 
-    const sent = JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body))
+    const sent = generateRequestBody(fetchMock)
     expect(result.ok).toBe(true)
     expect(sent).toEqual(expect.objectContaining({
       detail_enhance: true,
@@ -577,7 +629,7 @@ describe('generateImageTool', () => {
       { config: config(root), trackedFiles: new Set<string>() }
     )
 
-    const sent = JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body))
+    const sent = generateRequestBody(fetchMock)
     expect(result.ok).toBe(true)
     expect(sent).toEqual(expect.objectContaining({
       hires_fix: true,
@@ -620,7 +672,7 @@ describe('generateImageTool', () => {
       { config: config(root), trackedFiles: new Set<string>() }
     )
 
-    const sent = JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body))
+    const sent = generateRequestBody(fetchMock)
     expect(result.ok).toBe(true)
     expect(sent).toEqual(expect.objectContaining({
       realism_preset: true,
@@ -649,7 +701,7 @@ describe('generateImageTool', () => {
       { config: config(root), trackedFiles: new Set<string>() }
     )
 
-    const sent = JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body))
+    const sent = generateRequestBody(fetchMock)
     expect(result.ok).toBe(true)
     expect(sent).toEqual(expect.objectContaining({
       realism_preset: true,
@@ -705,7 +757,7 @@ describe('generateImageTool', () => {
       { config: config(root), trackedFiles: new Set<string>() }
     )
 
-    const sent = JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body))
+    const sent = generateRequestBody(fetchMock)
     expect(result.ok).toBe(true)
     expect(sent).toEqual(expect.objectContaining({
       realism_preset: true,
@@ -814,7 +866,7 @@ describe('generateImageTool', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
-  it('returns a clear error when the worker is unavailable', async () => {
+  it('returns a clear start command when the worker is unavailable and auto-start is disabled', async () => {
     const root = await tempRoot()
     vi.stubGlobal('fetch', vi.fn(async () => {
       throw new Error('connect ECONNREFUSED')
@@ -826,8 +878,108 @@ describe('generateImageTool', () => {
     )
 
     expect(result.ok).toBe(false)
-    expect(result.content).toContain('T2I worker request failed')
-    expect(result.content).toContain('connect ECONNREFUSED')
+    expect(result.content).toContain('T2I worker is not running at http://127.0.0.1:7861')
+    expect(result.content).toContain('T2I_INSTALL_DETAIL_DEPS=1 ./server/start-t2i.sh')
+    expect(spawnMock).not.toHaveBeenCalled()
+  })
+
+  it('auto-starts a missing worker, generates an image, and stops the managed worker', async () => {
+    const root = await tempRoot()
+    const imagePath = join(root, 'generated-images', 'auto.png')
+    const managedWorker = fakeChildProcess()
+    spawnMock.mockReturnValue(managedWorker)
+    const fetchMock = vi.fn(async (url: string, _init?: RequestInit) => {
+      if (String(url).endsWith('/health')) {
+        if (fetchMock.mock.calls.filter(([calledUrl]) => String(calledUrl).endsWith('/health')).length === 1) {
+          throw new Error('connect ECONNREFUSED')
+        }
+        return mockJsonResponse({ ok: true, model: 'majicmixRealistic_v7' })
+      }
+      return mockJsonResponse({
+        model: 'majicmixRealistic_v7',
+        images: [{ path: imagePath, seed: 42, width: 1024, height: 1536 }]
+      })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await generateImageTool.execute(
+      { prompt: 'portrait' },
+      {
+        config: config(root, 'generated-images', {
+          autoStart: true,
+          startCommand: './server/start-t2i.sh',
+          startTimeoutMs: 20
+        }),
+        trackedFiles: new Set<string>()
+      }
+    )
+
+    expect(result.ok).toBe(true)
+    expect(spawnMock).toHaveBeenCalledWith(
+      './server/start-t2i.sh',
+      expect.objectContaining({
+        cwd: root,
+        detached: true,
+        shell: true,
+        env: expect.objectContaining({
+          T2I_INSTALL_DETAIL_DEPS: '1',
+          T2I_HOST: '127.0.0.1',
+          T2I_PORT: '7861'
+        })
+      })
+    )
+    expect(managedWorker.kill).toHaveBeenCalledWith('SIGTERM')
+    expect(generateRequestBody(fetchMock)).toMatchObject({
+      prompt: 'portrait',
+      output_dir: join(root, 'generated-images')
+    })
+  })
+
+  it('reuses an already-running worker without spawning or stopping it', async () => {
+    const root = await tempRoot()
+    const imagePath = join(root, 'generated-images', 'reuse.png')
+    const fetchMock = mockHealthyT2IFetch({
+      model: 'majicmixRealistic_v7',
+      images: [{ path: imagePath, seed: 42, width: 1024, height: 1536 }]
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await generateImageTool.execute(
+      { prompt: 'portrait' },
+      { config: config(root, 'generated-images', { autoStart: true }), trackedFiles: new Set<string>() }
+    )
+
+    expect(result.ok).toBe(true)
+    expect(spawnMock).not.toHaveBeenCalled()
+    expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
+      'http://127.0.0.1:7861/health',
+      'http://127.0.0.1:7861/generate'
+    ])
+  })
+
+  it('stops an auto-started worker when generation fails', async () => {
+    const root = await tempRoot()
+    const managedWorker = fakeChildProcess()
+    spawnMock.mockReturnValue(managedWorker)
+    const fetchMock = vi.fn(async (url: string, _init?: RequestInit) => {
+      if (String(url).endsWith('/health')) {
+        if (fetchMock.mock.calls.filter(([calledUrl]) => String(calledUrl).endsWith('/health')).length === 1) {
+          throw new Error('connect ECONNREFUSED')
+        }
+        return mockJsonResponse({ ok: true, model: 'majicmixRealistic_v7' })
+      }
+      return mockJsonResponse({ error: 'boom' }, false, 500)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await generateImageTool.execute(
+      { prompt: 'portrait' },
+      { config: config(root, 'generated-images', { autoStart: true, startTimeoutMs: 20 }), trackedFiles: new Set<string>() }
+    )
+
+    expect(result.ok).toBe(false)
+    expect(result.content).toContain('T2I worker returned HTTP 500')
+    expect(managedWorker.kill).toHaveBeenCalledWith('SIGTERM')
   })
 
   it('rejects worker paths outside the output directory', async () => {
