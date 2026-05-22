@@ -65,36 +65,36 @@ describe('generateImageTool', () => {
     }))
   })
 
-  it('validates schema defaults, dimension constraints, and count limit', () => {
+  it('validates schema constraints without materializing optional defaults', () => {
     const defaults = generateImageTool.schema.safeParse({ prompt: 'portrait' })
     expect(defaults.success).toBe(true)
     if (defaults.success) {
-      expect(defaults.data.width).toBe(512)
-      expect(defaults.data.height).toBe(768)
-      expect(defaults.data.steps).toBe(30)
+      expect(defaults.data.width).toBeUndefined()
+      expect(defaults.data.height).toBeUndefined()
+      expect(defaults.data.steps).toBeUndefined()
       expect(defaults.data.cfg_scale).toBeUndefined()
-      expect(defaults.data.count).toBe(1)
-      expect(defaults.data.realism_preset).toBe(false)
-      expect(defaults.data.hires_fix).toBe(false)
-      expect(defaults.data.hires_scale).toBe(2)
-      expect(defaults.data.hires_steps).toBe(15)
-      expect(defaults.data.hires_denoise).toBe(0.15)
-      expect(defaults.data.bmab_postprocess).toBe(false)
-      expect(defaults.data.bmab_noise_alpha).toBe(0.05)
-      expect(defaults.data.bmab_contrast).toBe(0.9)
-      expect(defaults.data.bmab_brightness).toBe(1.1)
-      expect(defaults.data.bmab_color_temperature).toBe(15)
-      expect(defaults.data.eye_refine).toBe(false)
-      expect(defaults.data.eye_refine_strength).toBe(0.12)
-      expect(defaults.data.eye_refine_steps).toBe(12)
-      expect(defaults.data.detail_enhance).toBe(false)
-      expect(defaults.data.detail_targets).toBe('auto')
+      expect(defaults.data.count).toBeUndefined()
+      expect(defaults.data.realism_preset).toBeUndefined()
+      expect(defaults.data.hires_fix).toBeUndefined()
+      expect(defaults.data.hires_scale).toBeUndefined()
+      expect(defaults.data.hires_steps).toBeUndefined()
+      expect(defaults.data.hires_denoise).toBeUndefined()
+      expect(defaults.data.bmab_postprocess).toBeUndefined()
+      expect(defaults.data.bmab_noise_alpha).toBeUndefined()
+      expect(defaults.data.bmab_contrast).toBeUndefined()
+      expect(defaults.data.bmab_brightness).toBeUndefined()
+      expect(defaults.data.bmab_color_temperature).toBeUndefined()
+      expect(defaults.data.eye_refine).toBeUndefined()
+      expect(defaults.data.eye_refine_strength).toBeUndefined()
+      expect(defaults.data.eye_refine_steps).toBeUndefined()
+      expect(defaults.data.detail_enhance).toBeUndefined()
+      expect(defaults.data.detail_targets).toBeUndefined()
       expect(defaults.data.detail_strength).toBeUndefined()
-      expect(defaults.data.return_intermediate).toBe(false)
-      expect(defaults.data.safe_preset).toBe(true)
-      expect(defaults.data.dynamic_thresholding).toBe(true)
-      expect(defaults.data.dynamic_thresholding_mimic_scale).toBe(7)
-      expect(defaults.data.dynamic_thresholding_percentile).toBe(0.995)
+      expect(defaults.data.return_intermediate).toBeUndefined()
+      expect(defaults.data.safe_preset).toBeUndefined()
+      expect(defaults.data.dynamic_thresholding).toBeUndefined()
+      expect(defaults.data.dynamic_thresholding_mimic_scale).toBeUndefined()
+      expect(defaults.data.dynamic_thresholding_percentile).toBeUndefined()
     }
 
     expect(generateImageTool.schema.safeParse({ prompt: 'portrait', width: 500 }).success).toBe(false)
@@ -571,6 +571,32 @@ describe('generateImageTool', () => {
       cfg_scale: 6,
       detail_strength: 0.2
     }))
+  })
+
+  it('reports no safe preset adjustments for omitted fields through the tool registry execution path', async () => {
+    const root = await tempRoot()
+    const fetchMock = vi.fn(async (_url: string, _init: RequestInit) =>
+      mockJsonResponse({
+        model: 'majicmixRealistic_v7',
+        images: [{ path: join(root, 'generated-images', 'safe.png'), seed: 42, width: 1024, height: 1536 }]
+      })
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await executeToolCall(
+      {
+        id: 'call-1',
+        name: 'generate_image',
+        argumentsText: JSON.stringify({ prompt: 'portrait photo' })
+      },
+      [generateImageTool],
+      { config: config(root), trackedFiles: new Set<string>() }
+    )
+
+    expect(result.ok).toBe(true)
+    expect(result.content).toContain('preset: m3_16gb_safe')
+    expect(result.content).toContain('adjusted: none')
+    expect(result.metadata?.preset_adjustments).toEqual([])
   })
 
   it('does not override explicit cfg scale or detail strength with realism preset defaults', async () => {
