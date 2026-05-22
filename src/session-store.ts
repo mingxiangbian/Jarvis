@@ -324,7 +324,7 @@ function normalizeSessionIndexItem(item: SessionIndexItem | LegacySessionIndexIt
 }
 
 function sessionsDir(cwd: string): string {
-  return resolve(cwd, '.cc-local', 'sessions')
+  return resolve(cwd, '.jarvis', 'sessions')
 }
 
 function indexPath(cwd: string): string {

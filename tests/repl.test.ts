@@ -69,7 +69,7 @@ function createTestReadline(lines: string[]) {
 const tempDirs: string[] = []
 
 async function createTempDir(): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), 'cc-local-repl-'))
+  const dir = await mkdtemp(join(tmpdir(), 'jarvis-repl-'))
   tempDirs.push(dir)
   return dir
 }

@@ -22,19 +22,19 @@ import {
 const tempDirs: string[] = []
 
 async function createTempDir(): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), 'cc-local-memory-'))
+  const dir = await mkdtemp(join(tmpdir(), 'jarvis-memory-'))
   tempDirs.push(dir)
   return dir
 }
 
 async function createMemoryDir(root: string): Promise<string> {
-  const dir = join(root, '.cc-local', 'memory')
+  const dir = join(root, '.jarvis', 'memory')
   await mkdir(dir, { recursive: true })
   return dir
 }
 
 async function createSessionsDir(root: string): Promise<string> {
-  const dir = join(root, '.cc-local', 'memory', 'sessions')
+  const dir = join(root, '.jarvis', 'memory', 'sessions')
   await mkdir(dir, { recursive: true })
   return dir
 }
@@ -46,24 +46,24 @@ describe('loadSoul', () => {
 
   it('loads only the global soul file', async () => {
     const home = await createTempDir()
-    const userCcLocalDir = join(home, '.cc-local')
+    const userJarvisDir = join(home, '.jarvis')
     const project = join(home, 'workspace', 'project')
-    await mkdir(join(project, '.cc-local'), { recursive: true })
-    await mkdir(userCcLocalDir, { recursive: true })
-    await writeFile(join(userCcLocalDir, 'soul.md'), 'Be concise.\n')
-    await writeFile(join(project, '.cc-local', 'soul.md'), 'Do not load project persona.\n')
+    await mkdir(join(project, '.jarvis'), { recursive: true })
+    await mkdir(userJarvisDir, { recursive: true })
+    await writeFile(join(userJarvisDir, 'soul.md'), 'Be concise.\n')
+    await writeFile(join(project, '.jarvis', 'soul.md'), 'Do not load project persona.\n')
 
-    await expect(loadSoul(userCcLocalDir)).resolves.toBe('## Global Persona\n\nBe concise.')
+    await expect(loadSoul(userJarvisDir)).resolves.toBe('## Global Persona\n\nBe concise.')
   })
 
   it('returns an empty string when global soul is missing or empty', async () => {
     const home = await createTempDir()
-    const userCcLocalDir = join(home, '.cc-local')
-    await mkdir(userCcLocalDir, { recursive: true })
-    await expect(loadSoul(userCcLocalDir)).resolves.toBe('')
+    const userJarvisDir = join(home, '.jarvis')
+    await mkdir(userJarvisDir, { recursive: true })
+    await expect(loadSoul(userJarvisDir)).resolves.toBe('')
 
-    await writeFile(join(userCcLocalDir, 'soul.md'), '\n\n')
-    await expect(loadSoul(userCcLocalDir)).resolves.toBe('')
+    await writeFile(join(userJarvisDir, 'soul.md'), '\n\n')
+    await expect(loadSoul(userJarvisDir)).resolves.toBe('')
   })
 })
 
@@ -74,19 +74,19 @@ describe('loadRuleStack', () => {
 
   it('loads global and project Rule.md files from broadest to narrowest', async () => {
     const home = await createTempDir()
-    const userCcLocalDir = join(home, '.cc-local')
+    const userJarvisDir = join(home, '.jarvis')
     const workspace = join(home, 'workspace')
     const project = join(workspace, 'project')
-    await mkdir(userCcLocalDir, { recursive: true })
-    await mkdir(join(workspace, '.cc-local'), { recursive: true })
-    await mkdir(join(project, '.cc-local'), { recursive: true })
-    await writeFile(join(userCcLocalDir, 'Rule.md'), 'Global rule.\n')
-    await writeFile(join(workspace, '.cc-local', 'Rule.md'), 'Workspace rule.\n')
-    await writeFile(join(project, '.cc-local', 'Rule.md'), 'Project rule.\n')
+    await mkdir(userJarvisDir, { recursive: true })
+    await mkdir(join(workspace, '.jarvis'), { recursive: true })
+    await mkdir(join(project, '.jarvis'), { recursive: true })
+    await writeFile(join(userJarvisDir, 'Rule.md'), 'Global rule.\n')
+    await writeFile(join(workspace, '.jarvis', 'Rule.md'), 'Workspace rule.\n')
+    await writeFile(join(project, '.jarvis', 'Rule.md'), 'Project rule.\n')
     const workspaceRealPath = await realpath(workspace)
     const projectRealPath = await realpath(project)
 
-    await expect(loadRuleStack(project, userCcLocalDir)).resolves.toBe(
+    await expect(loadRuleStack(project, userJarvisDir)).resolves.toBe(
       [
         '## Global Rule\n\nGlobal rule.',
         `## Rule: ${workspaceRealPath}\n\nWorkspace rule.`,
@@ -97,16 +97,16 @@ describe('loadRuleStack', () => {
 
   it('skips missing intermediate Rule.md files without stopping traversal', async () => {
     const home = await createTempDir()
-    const userCcLocalDir = join(home, '.cc-local')
+    const userJarvisDir = join(home, '.jarvis')
     const workspace = join(home, 'workspace')
     const project = join(workspace, 'project')
-    await mkdir(userCcLocalDir, { recursive: true })
-    await mkdir(join(project, '.cc-local'), { recursive: true })
-    await writeFile(join(userCcLocalDir, 'Rule.md'), 'Global rule.\n')
-    await writeFile(join(project, '.cc-local', 'Rule.md'), 'Project rule.\n')
+    await mkdir(userJarvisDir, { recursive: true })
+    await mkdir(join(project, '.jarvis'), { recursive: true })
+    await writeFile(join(userJarvisDir, 'Rule.md'), 'Global rule.\n')
+    await writeFile(join(project, '.jarvis', 'Rule.md'), 'Project rule.\n')
     const projectRealPath = await realpath(project)
 
-    await expect(loadRuleStack(project, userCcLocalDir)).resolves.toBe(
+    await expect(loadRuleStack(project, userJarvisDir)).resolves.toBe(
       ['## Global Rule\n\nGlobal rule.', `## Rule: ${projectRealPath}\n\nProject rule.`].join('\n\n')
     )
   })
@@ -114,13 +114,13 @@ describe('loadRuleStack', () => {
   it('does not traverse project rules when cwd is outside the global home root', async () => {
     const home = await createTempDir()
     const outside = await createTempDir()
-    const userCcLocalDir = join(home, '.cc-local')
-    await mkdir(userCcLocalDir, { recursive: true })
-    await mkdir(join(outside, '.cc-local'), { recursive: true })
-    await writeFile(join(userCcLocalDir, 'Rule.md'), 'Global rule.\n')
-    await writeFile(join(outside, '.cc-local', 'Rule.md'), 'Outside rule.\n')
+    const userJarvisDir = join(home, '.jarvis')
+    await mkdir(userJarvisDir, { recursive: true })
+    await mkdir(join(outside, '.jarvis'), { recursive: true })
+    await writeFile(join(userJarvisDir, 'Rule.md'), 'Global rule.\n')
+    await writeFile(join(outside, '.jarvis', 'Rule.md'), 'Outside rule.\n')
 
-    await expect(loadRuleStack(outside, userCcLocalDir)).resolves.toBe(
+    await expect(loadRuleStack(outside, userJarvisDir)).resolves.toBe(
       ['## Global Rule\n\nGlobal rule.', `## Rule: ${await realpath(outside)}\n\nOutside rule.`].join('\n\n')
     )
   })
@@ -128,15 +128,15 @@ describe('loadRuleStack', () => {
   it('ignores empty and symlinked Rule.md files', async () => {
     const home = await createTempDir()
     const outside = await createTempDir()
-    const userCcLocalDir = join(home, '.cc-local')
+    const userJarvisDir = join(home, '.jarvis')
     const project = join(home, 'project')
-    await mkdir(userCcLocalDir, { recursive: true })
-    await mkdir(join(project, '.cc-local'), { recursive: true })
-    await writeFile(join(userCcLocalDir, 'Rule.md'), '\n')
+    await mkdir(userJarvisDir, { recursive: true })
+    await mkdir(join(project, '.jarvis'), { recursive: true })
+    await writeFile(join(userJarvisDir, 'Rule.md'), '\n')
     await writeFile(join(outside, 'Rule.md'), 'Do not load symlink.\n')
-    await symlink(join(outside, 'Rule.md'), join(project, '.cc-local', 'Rule.md'))
+    await symlink(join(outside, 'Rule.md'), join(project, '.jarvis', 'Rule.md'))
 
-    await expect(loadRuleStack(project, userCcLocalDir)).resolves.toBe('')
+    await expect(loadRuleStack(project, userJarvisDir)).resolves.toBe('')
   })
 })
 
@@ -145,19 +145,19 @@ describe('loadMemories', () => {
     await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })))
   })
 
-  it('returns an empty string when .cc-local/memory/ does not exist', async () => {
+  it('returns an empty string when .jarvis/memory/ does not exist', async () => {
     const root = await createTempDir()
 
     await expect(loadMemories(root)).resolves.toBe('')
   })
 
-  it('returns an empty string when .cc-local/memory is a symlink outside the project', async () => {
+  it('returns an empty string when .jarvis/memory is a symlink outside the project', async () => {
     const root = await createTempDir()
     const outsideMemoryDir = await createTempDir()
-    await mkdir(join(root, '.cc-local'), { recursive: true })
+    await mkdir(join(root, '.jarvis'), { recursive: true })
     await writeFile(join(outsideMemoryDir, 'MEMORY.md'), '- [Outside](outside.md) — should not load\n')
     await writeFile(join(outsideMemoryDir, 'outside.md'), 'Do not load outside memory.\n')
-    await symlink(outsideMemoryDir, join(root, '.cc-local', 'memory'))
+    await symlink(outsideMemoryDir, join(root, '.jarvis', 'memory'))
 
     await expect(loadMemories(root)).resolves.toBe('')
   })
@@ -231,7 +231,7 @@ describe('loadMemories', () => {
     await expect(loadMemories(root)).resolves.toBe('## Memory: Existing\n\nPresent memory.')
   })
 
-  it('skips memory index entries whose paths escape .cc-local/memory', async () => {
+  it('skips memory index entries whose paths escape .jarvis/memory', async () => {
     const root = await createTempDir()
     const memoryDir = await createMemoryDir(root)
     await writeFile(
@@ -244,7 +244,7 @@ describe('loadMemories', () => {
     await expect(loadMemories(root)).resolves.toBe('## Memory: Inside\n\nLoad this memory.')
   })
 
-  it('skips symlinked memory files that resolve outside .cc-local/memory', async () => {
+  it('skips symlinked memory files that resolve outside .jarvis/memory', async () => {
     const root = await createTempDir()
     const memoryDir = await createMemoryDir(root)
     await writeFile(
@@ -288,12 +288,12 @@ describe('loadDaily', () => {
     await expect(loadDaily(root, 2)).resolves.toBe('')
   })
 
-  it('returns an empty string when .cc-local is a symlink outside the project', async () => {
+  it('returns an empty string when .jarvis is a symlink outside the project', async () => {
     const root = await createTempDir()
-    const outsideCcLocal = await createTempDir()
-    await mkdir(join(outsideCcLocal, 'memory'), { recursive: true })
-    await writeFile(join(outsideCcLocal, 'memory', 'daily.md'), 'outside\n')
-    await symlink(outsideCcLocal, join(root, '.cc-local'))
+    const outsideJarvis = await createTempDir()
+    await mkdir(join(outsideJarvis, 'memory'), { recursive: true })
+    await writeFile(join(outsideJarvis, 'memory', 'daily.md'), 'outside\n')
+    await symlink(outsideJarvis, join(root, '.jarvis'))
 
     await expect(loadDaily(root, 2)).resolves.toBe('')
   })
@@ -359,8 +359,8 @@ describe('scoped memory loading', () => {
   it('loads project and global memories through separate APIs', async () => {
     const root = await createTempDir()
     const projectMemoryDir = await createMemoryDir(root)
-    const userCcLocalDir = join(await createTempDir(), '.cc-local')
-    const globalMemoryDir = join(userCcLocalDir, 'memory')
+    const userJarvisDir = join(await createTempDir(), '.jarvis')
+    const globalMemoryDir = join(userJarvisDir, 'memory')
     await mkdir(globalMemoryDir, { recursive: true })
     await writeFile(join(projectMemoryDir, 'MEMORY.md'), '- [Project](project.md) — project memory\n')
     await writeFile(join(projectMemoryDir, 'project.md'), 'Project content.\n')
@@ -368,24 +368,24 @@ describe('scoped memory loading', () => {
     await writeFile(join(globalMemoryDir, 'global.md'), 'Global content.\n')
 
     await expect(loadProjectMemories(root)).resolves.toBe('## Project Memory: Project\n\nProject content.')
-    await expect(loadGlobalMemories(userCcLocalDir)).resolves.toBe('## Global Memory: Global\n\nGlobal content.')
+    await expect(loadGlobalMemories(userJarvisDir)).resolves.toBe('## Global Memory: Global\n\nGlobal content.')
   })
 
-  it('does not load project memories through a symlinked .cc-local directory', async () => {
+  it('does not load project memories through a symlinked .jarvis directory', async () => {
     const root = await createTempDir()
-    const outsideCcLocal = await createTempDir()
-    await mkdir(join(outsideCcLocal, 'memory'), { recursive: true })
-    await writeFile(join(outsideCcLocal, 'memory', 'MEMORY.md'), '- [Outside](outside.md) — outside\n')
-    await writeFile(join(outsideCcLocal, 'memory', 'outside.md'), 'Outside content.\n')
-    await symlink(outsideCcLocal, join(root, '.cc-local'))
+    const outsideJarvis = await createTempDir()
+    await mkdir(join(outsideJarvis, 'memory'), { recursive: true })
+    await writeFile(join(outsideJarvis, 'memory', 'MEMORY.md'), '- [Outside](outside.md) — outside\n')
+    await writeFile(join(outsideJarvis, 'memory', 'outside.md'), 'Outside content.\n')
+    await symlink(outsideJarvis, join(root, '.jarvis'))
 
     await expect(loadProjectMemories(root)).resolves.toBe('')
   })
 
   it('returns empty string for missing global memory scope', async () => {
-    const userCcLocalDir = join(await createTempDir(), '.cc-local')
+    const userJarvisDir = join(await createTempDir(), '.jarvis')
 
-    await expect(loadGlobalMemories(userCcLocalDir)).resolves.toBe('')
+    await expect(loadGlobalMemories(userJarvisDir)).resolves.toBe('')
   })
 })
 
@@ -394,7 +394,7 @@ describe('loadRecentSummaries', () => {
     await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })))
   })
 
-  it('returns an empty string when .cc-local/memory/sessions does not exist', async () => {
+  it('returns an empty string when .jarvis/memory/sessions does not exist', async () => {
     const root = await createTempDir()
 
     await expect(loadRecentSummaries(root, 3)).resolves.toBe('')
@@ -463,7 +463,7 @@ describe('loadRecentSummaries', () => {
     )
   })
 
-  it('skips symlinked session files that resolve outside .cc-local/memory/sessions', async () => {
+  it('skips symlinked session files that resolve outside .jarvis/memory/sessions', async () => {
     const root = await createTempDir()
     const sessionsDir = await createSessionsDir(root)
     await writeFile(join(root, '2026-05-11.md'), 'Do not inject this symlinked summary.\n')
@@ -513,7 +513,7 @@ describe('saveSessionSummary', () => {
 
     await saveSessionSummary(root, content)
 
-    const sessionsDir = join(root, '.cc-local', 'memory', 'sessions')
+    const sessionsDir = join(root, '.jarvis', 'memory', 'sessions')
     const files = await readdir(sessionsDir)
     expect(files).toHaveLength(1)
     expect(files[0]).toMatch(/^\d{4}-\d{2}-\d{2}\.md$/)
@@ -529,7 +529,7 @@ describe('saveSessionSummary', () => {
     await saveSessionSummary(root, firstContent)
     await saveSessionSummary(root, secondContent)
 
-    const sessionsDir = join(root, '.cc-local', 'memory', 'sessions')
+    const sessionsDir = join(root, '.jarvis', 'memory', 'sessions')
     const files = await readdir(sessionsDir)
     expect(new Set(files)).toEqual(new Set([`${today}.md`, `${today}-1.md`]))
     await expect(readFile(join(sessionsDir, `${today}.md`), 'utf8')).resolves.toBe(firstContent)
@@ -543,7 +543,7 @@ describe('saveSessionSummary', () => {
 
     await Promise.all(contents.map((content) => saveSessionSummary(root, content)))
 
-    const sessionsDir = join(root, '.cc-local', 'memory', 'sessions')
+    const sessionsDir = join(root, '.jarvis', 'memory', 'sessions')
     const files = await readdir(sessionsDir)
     expect(new Set(files)).toEqual(
       new Set([`${today}.md`, `${today}-1.md`, `${today}-2.md`, `${today}-3.md`, `${today}-4.md`])
@@ -553,11 +553,11 @@ describe('saveSessionSummary', () => {
     expect(new Set(savedContents)).toEqual(new Set(contents))
   })
 
-  it('does not write session summary through a .cc-local/memory symlink outside the project', async () => {
+  it('does not write session summary through a .jarvis/memory symlink outside the project', async () => {
     const root = await createTempDir()
     const outsideMemoryDir = await createTempDir()
-    await mkdir(join(root, '.cc-local'), { recursive: true })
-    await symlink(outsideMemoryDir, join(root, '.cc-local', 'memory'))
+    await mkdir(join(root, '.jarvis'), { recursive: true })
+    await symlink(outsideMemoryDir, join(root, '.jarvis', 'memory'))
 
     let error: unknown
     try {
@@ -570,10 +570,10 @@ describe('saveSessionSummary', () => {
     expect(error).toBeInstanceOf(Error)
   })
 
-  it('does not create session summary through a .cc-local symlink outside the project', async () => {
+  it('does not create session summary through a .jarvis symlink outside the project', async () => {
     const root = await createTempDir()
-    const outsideCcLocalDir = await createTempDir()
-    await symlink(outsideCcLocalDir, join(root, '.cc-local'))
+    const outsideJarvisDir = await createTempDir()
+    await symlink(outsideJarvisDir, join(root, '.jarvis'))
 
     let error: unknown
     try {
@@ -582,7 +582,7 @@ describe('saveSessionSummary', () => {
       error = caught
     }
 
-    await expect(readdir(join(outsideCcLocalDir, 'memory'))).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readdir(join(outsideJarvisDir, 'memory'))).rejects.toMatchObject({ code: 'ENOENT' })
     expect(error).toBeInstanceOf(Error)
   })
 
@@ -639,7 +639,7 @@ describe('updateMemoryIndex', () => {
       summary: 'agent loop notes',
     })
 
-    await expect(readFile(join(root, '.cc-local', 'memory', 'MEMORY.md'), 'utf8')).resolves.toBe(
+    await expect(readFile(join(root, '.jarvis', 'memory', 'MEMORY.md'), 'utf8')).resolves.toBe(
       '- [Architecture](architecture.md) — agent loop notes\n'
     )
   })
@@ -654,7 +654,7 @@ describe('updateMemoryIndex', () => {
       type: 'reference'
     })
 
-    await expect(readFile(join(root, '.cc-local', 'memory', 'MEMORY.md'), 'utf8')).resolves.toBe(
+    await expect(readFile(join(root, '.jarvis', 'memory', 'MEMORY.md'), 'utf8')).resolves.toBe(
       '- [Docs](docs.md) — [reference] external docs\n'
     )
   })
@@ -731,11 +731,11 @@ describe('updateMemoryIndex', () => {
     await expect(readFile(memoryIndexPath, 'utf8')).resolves.toBe(existingIndex)
   })
 
-  it('does not update memory index through a .cc-local/memory symlink outside the project', async () => {
+  it('does not update memory index through a .jarvis/memory symlink outside the project', async () => {
     const root = await createTempDir()
     const outsideMemoryDir = await createTempDir()
-    await mkdir(join(root, '.cc-local'), { recursive: true })
-    await symlink(outsideMemoryDir, join(root, '.cc-local', 'memory'))
+    await mkdir(join(root, '.jarvis'), { recursive: true })
+    await symlink(outsideMemoryDir, join(root, '.jarvis', 'memory'))
 
     let error: unknown
     try {
@@ -752,10 +752,10 @@ describe('updateMemoryIndex', () => {
     expect(error).toBeInstanceOf(Error)
   })
 
-  it('does not create memory index through a .cc-local symlink outside the project', async () => {
+  it('does not create memory index through a .jarvis symlink outside the project', async () => {
     const root = await createTempDir()
-    const outsideCcLocalDir = await createTempDir()
-    await symlink(outsideCcLocalDir, join(root, '.cc-local'))
+    const outsideJarvisDir = await createTempDir()
+    await symlink(outsideJarvisDir, join(root, '.jarvis'))
 
     let error: unknown
     try {
@@ -768,7 +768,7 @@ describe('updateMemoryIndex', () => {
       error = caught
     }
 
-    await expect(readdir(join(outsideCcLocalDir, 'memory'))).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readdir(join(outsideJarvisDir, 'memory'))).rejects.toMatchObject({ code: 'ENOENT' })
     expect(error).toBeInstanceOf(Error)
   })
 
@@ -816,10 +816,10 @@ describe('writeMemoryEntry', () => {
       )
     ).resolves.toEqual({ ok: true, file: 'architecture.md' })
 
-    await expect(readFile(join(root, '.cc-local', 'memory', 'architecture.md'), 'utf8')).resolves.toBe(
+    await expect(readFile(join(root, '.jarvis', 'memory', 'architecture.md'), 'utf8')).resolves.toBe(
       'Use small context windows.\n'
     )
-    await expect(readFile(join(root, '.cc-local', 'memory', 'MEMORY.md'), 'utf8')).resolves.toBe(
+    await expect(readFile(join(root, '.jarvis', 'memory', 'MEMORY.md'), 'utf8')).resolves.toBe(
       '- [Architecture](architecture.md) — agent loop notes\n'
     )
   })
@@ -841,7 +841,7 @@ describe('writeMemoryEntry', () => {
       )
     ).resolves.toEqual({ ok: true, file: 'correction.md' })
 
-    await expect(readFile(join(root, '.cc-local', 'memory', 'MEMORY.md'), 'utf8')).resolves.toBe(
+    await expect(readFile(join(root, '.jarvis', 'memory', 'MEMORY.md'), 'utf8')).resolves.toBe(
       '- [Correction](correction.md) — [feedback] user corrected behavior\n'
     )
   })
@@ -876,7 +876,7 @@ describe('writeMemoryEntry', () => {
       )
     ).resolves.toEqual({ ok: false, error: 'Memory summary is too long' })
 
-    await expect(readFile(join(root, '.cc-local', 'memory', 'long.md'), 'utf8')).rejects.toMatchObject({
+    await expect(readFile(join(root, '.jarvis', 'memory', 'long.md'), 'utf8')).rejects.toMatchObject({
       code: 'ENOENT'
     })
   })
@@ -918,7 +918,7 @@ describe('writeMemoryEntry', () => {
       )
     ).resolves.toEqual({ ok: false, error: 'Invalid memory type: invalid' })
 
-    await expect(readFile(join(root, '.cc-local', 'memory', 'bad.md'), 'utf8')).rejects.toMatchObject({
+    await expect(readFile(join(root, '.jarvis', 'memory', 'bad.md'), 'utf8')).rejects.toMatchObject({
       code: 'ENOENT'
     })
   })

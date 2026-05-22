@@ -7,7 +7,7 @@ import { loadInstructionsIfExists } from '../src/memory.js'
 const tempDirs: string[] = []
 
 async function createTempDir(): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), 'cc-local-memory-'))
+  const dir = await mkdtemp(join(tmpdir(), 'jarvis-memory-'))
   tempDirs.push(dir)
   return dir
 }
@@ -25,8 +25,8 @@ describe('loadInstructionsIfExists', () => {
 
   it('returns titled formatted content when instructions.md exists', async () => {
     const root = await createTempDir()
-    await mkdir(join(root, '.cc-local'))
-    await writeFile(join(root, '.cc-local', 'instructions.md'), 'Keep changes small.\n')
+    await mkdir(join(root, '.jarvis'))
+    await writeFile(join(root, '.jarvis', 'instructions.md'), 'Keep changes small.\n')
 
     await expect(loadInstructionsIfExists(root)).resolves.toBe(
       '## Project Instructions\n\nKeep changes small.\n'

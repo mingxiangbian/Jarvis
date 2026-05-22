@@ -13,7 +13,7 @@ import {
 const tempDirs: string[] = []
 
 async function createTempDir(): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), 'cc-local-memory-int-'))
+  const dir = await mkdtemp(join(tmpdir(), 'jarvis-memory-int-'))
   tempDirs.push(dir)
   return dir
 }
@@ -25,7 +25,7 @@ describe('memory system end-to-end', () => {
 
   it('loads a memory file after it is written and indexed', async () => {
     const root = await createTempDir()
-    const memoryDir = join(root, '.cc-local', 'memory')
+    const memoryDir = join(root, '.jarvis', 'memory')
     await mkdir(memoryDir, { recursive: true })
     await writeFile(join(memoryDir, 'style.md'), 'Use single quotes\n')
 
@@ -56,12 +56,12 @@ describe('memory system end-to-end', () => {
     expect(summaries).toContain('Fixed a bug')
     expect(summaries).toContain('Added feature')
 
-    const sessionsDir = join(root, '.cc-local', 'memory', 'sessions')
+    const sessionsDir = join(root, '.jarvis', 'memory', 'sessions')
     const files = await readdir(sessionsDir)
     expect(files).toHaveLength(2)
   })
 
-  it('degrades gracefully with no .cc-local directory', async () => {
+  it('degrades gracefully with no .jarvis directory', async () => {
     const root = await createTempDir()
 
     await expect(loadMemories(root)).resolves.toBe('')

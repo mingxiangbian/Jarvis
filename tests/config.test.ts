@@ -61,7 +61,7 @@ describe('createDefaultConfig', () => {
     expect(config.collapseThreshold).toBe(0.6)
     expect(config.snipKeepRounds).toBe(15)
     expect(config.microcompactKeepRecentRounds).toBe(5)
-    expect(config.userCcLocalDir).toBe(join(homedir(), '.cc-local'))
+    expect(config.userJarvisDir).toBe(join(homedir(), '.jarvis'))
     expect(config.dailyCompactThreshold).toBe(500)
     expect(config.dailyLoadLines).toBe(200)
     expect(config.dailySummaryMaxLength).toBe(400)
@@ -96,12 +96,22 @@ describe('createDefaultConfig', () => {
   })
 
   it('uses local model environment overrides when present', () => {
-    vi.stubEnv('CC_LOCAL_BASE_URL', 'http://127.0.0.1:9999/v1')
-    vi.stubEnv('CC_LOCAL_MODEL', 'custom-local-model')
+    vi.stubEnv('JARVIS_BASE_URL', 'http://127.0.0.1:9999/v1')
+    vi.stubEnv('JARVIS_MODEL', 'custom-local-model')
 
     const config = createDefaultConfig('/tmp/project')
 
     expect(config.model.baseUrl).toBe('http://127.0.0.1:9999/v1')
     expect(config.model.model).toBe('custom-local-model')
+  })
+
+  it('ignores deprecated CC_LOCAL model environment variables', () => {
+    vi.stubEnv('CC_LOCAL_BASE_URL', 'http://127.0.0.1:9999/v1')
+    vi.stubEnv('CC_LOCAL_MODEL', 'old-local-model')
+
+    const config = createDefaultConfig('/tmp/project')
+
+    expect(config.model.baseUrl).toBe('http://127.0.0.1:8080/v1')
+    expect(config.model.model).toBe('Qwen3.5-9B-MLX-4bit')
   })
 })

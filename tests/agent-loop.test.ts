@@ -12,7 +12,7 @@ import type { AgentObserver } from '../src/ui-observer.js'
 const tempDirs: string[] = []
 
 async function createTempDir(): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), 'cc-local-agent-loop-'))
+  const dir = await mkdtemp(join(tmpdir(), 'jarvis-agent-loop-'))
   tempDirs.push(dir)
   return dir
 }
@@ -780,7 +780,7 @@ describe('runAgentLoop', () => {
 
     expect(result.finalText).toBe('User prefers daily memory to store content summaries instead of tool-call logs.')
     expect(calls).toBe(3)
-    const dailyMemory = await readFile(join(root, '.cc-local', 'memory', 'daily.md'), 'utf8')
+    const dailyMemory = await readFile(join(root, '.jarvis', 'memory', 'daily.md'), 'utf8')
     expect(dailyMemory).toContain('User prefers daily memory to store content summaries instead of tool-call logs.')
     expect(dailyMemory).not.toContain('echo ->')
   })

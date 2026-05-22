@@ -38,7 +38,7 @@ const echoTool: Tool<{ text: string }> = {
 }
 
 async function createTempDir(): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), 'cc-local-memory-v2-'))
+  const dir = await mkdtemp(join(tmpdir(), 'jarvis-memory-v2-'))
   tempDirs.push(dir)
   return dir
 }
@@ -50,16 +50,16 @@ describe('Memory v2 integration', () => {
 
   it('records daily content summaries and promotes them into durable project memory', async () => {
     const home = await createTempDir()
-    const userCcLocalDir = join(home, '.cc-local')
+    const userJarvisDir = join(home, '.jarvis')
     const project = join(home, 'workspace', 'project')
-    await mkdir(join(project, '.cc-local'), { recursive: true })
-    await mkdir(join(home, 'workspace', '.cc-local'), { recursive: true })
-    await mkdir(userCcLocalDir, { recursive: true })
-    await writeFile(join(userCcLocalDir, 'soul.md'), 'Be concise.\n')
-    await writeFile(join(userCcLocalDir, 'Rule.md'), 'Global rule.\n')
-    await writeFile(join(home, 'workspace', '.cc-local', 'Rule.md'), 'Workspace rule.\n')
+    await mkdir(join(project, '.jarvis'), { recursive: true })
+    await mkdir(join(home, 'workspace', '.jarvis'), { recursive: true })
+    await mkdir(userJarvisDir, { recursive: true })
+    await writeFile(join(userJarvisDir, 'soul.md'), 'Be concise.\n')
+    await writeFile(join(userJarvisDir, 'Rule.md'), 'Global rule.\n')
+    await writeFile(join(home, 'workspace', '.jarvis', 'Rule.md'), 'Workspace rule.\n')
 
-    const config = { ...createDefaultConfig(project), userCcLocalDir }
+    const config = { ...createDefaultConfig(project), userJarvisDir }
     let modelCalls = 0
     const result = await runAgentLoop({
       config,
@@ -127,11 +127,11 @@ describe('Memory v2 integration', () => {
     ).resolves.toEqual({ ok: true, promoted: 1 })
 
     await expect(loadDailyRaw(project)).resolves.toBe('')
-    await expect(readFile(join(project, '.cc-local', 'memory', 'daily.archive.md'), 'utf8')).resolves.toBe(dailyRaw)
+    await expect(readFile(join(project, '.jarvis', 'memory', 'daily.archive.md'), 'utf8')).resolves.toBe(dailyRaw)
     await expect(loadProjectMemories(project)).resolves.toBe(
       '## Project Memory [project]: Daily Memory Content Summaries\n\nDaily memory stores durable content summaries instead of tool-call logs.'
     )
-    await expect(loadSoul(userCcLocalDir)).resolves.toBe('## Global Persona\n\nBe concise.')
-    await expect(loadRuleStack(project, userCcLocalDir)).resolves.toContain('Workspace rule.')
+    await expect(loadSoul(userJarvisDir)).resolves.toBe('## Global Persona\n\nBe concise.')
+    await expect(loadRuleStack(project, userJarvisDir)).resolves.toContain('Workspace rule.')
   })
 })

@@ -16,7 +16,7 @@ const tempDirs: string[] = []
 const originalTimeZone = process.env.TZ
 
 async function createTempDir(): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), 'cc-local-daily-summary-'))
+  const dir = await mkdtemp(join(tmpdir(), 'jarvis-daily-summary-'))
   tempDirs.push(dir)
   return dir
 }
@@ -45,7 +45,7 @@ describe('daily summary filtering', () => {
 
     expect(result).toBe(false)
     expect(callModel).not.toHaveBeenCalled()
-    await expect(readFile(join(root, '.cc-local', 'memory', 'daily.md'), 'utf8')).rejects.toMatchObject({
+    await expect(readFile(join(root, '.jarvis', 'memory', 'daily.md'), 'utf8')).rejects.toMatchObject({
       code: 'ENOENT'
     })
   })
@@ -53,7 +53,7 @@ describe('daily summary filtering', () => {
   it('appends one validated content summary for a memory-worthy turn', async () => {
     const root = await createTempDir()
     process.env.TZ = 'Asia/Shanghai'
-    await mkdir(join(root, '.cc-local', 'memory'), { recursive: true })
+    await mkdir(join(root, '.jarvis', 'memory'), { recursive: true })
     const callModel = vi.fn(async (_input: CallModelInput): Promise<ModelResponse> => ({
       content: JSON.stringify({
         shouldRemember: true,
@@ -73,7 +73,7 @@ describe('daily summary filtering', () => {
 
     expect(result).toBe(true)
     expect(callModel).toHaveBeenCalledTimes(1)
-    await expect(readFile(join(root, '.cc-local', 'memory', 'daily.md'), 'utf8')).resolves.toBe(
+    await expect(readFile(join(root, '.jarvis', 'memory', 'daily.md'), 'utf8')).resolves.toBe(
       '[2026-05-21 00:30] User prefers daily memory to store content summaries instead of tool-call logs.\n'
     )
   })

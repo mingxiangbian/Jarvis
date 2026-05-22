@@ -10,7 +10,7 @@ dist/
 coverage/
 .worktrees/
 .superpowers/
-.cc-local/
+.jarvis/
 data/
 workspace/
 docs/superpowers/plans/

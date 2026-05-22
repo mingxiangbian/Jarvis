@@ -10,13 +10,13 @@ import type { CompactMemoriesInput, CompactMemoriesResult } from '../src/memory.
 const tempDirs: string[] = []
 
 async function createTempDir(): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), 'cc-local-daily-compaction-'))
+  const dir = await mkdtemp(join(tmpdir(), 'jarvis-daily-compaction-'))
   tempDirs.push(dir)
   return dir
 }
 
 async function writeDaily(cwd: string, content: string): Promise<string> {
-  const memoryDir = join(cwd, '.cc-local', 'memory')
+  const memoryDir = join(cwd, '.jarvis', 'memory')
   await mkdir(memoryDir, { recursive: true })
   const dailyPath = join(memoryDir, 'daily.md')
   await writeFile(dailyPath, content)

@@ -1244,7 +1244,7 @@ describe('startWebServer', () => {
     const createBody = (await createResponse.json()) as { runId: string; sessionId: string }
     await readRunEventStream(`${server.url}/api/runs/${createBody.runId}/events`)
 
-    const sessionPath = join(cwd, '.cc-local', 'sessions', `${createBody.sessionId}.jsonl`)
+    const sessionPath = join(cwd, '.jarvis', 'sessions', `${createBody.sessionId}.jsonl`)
     await rm(sessionPath)
     await symlink(tmpdir(), sessionPath)
 
@@ -1375,14 +1375,14 @@ async function startServer(
 }
 
 async function createTempCwd(): Promise<string> {
-  const cwd = await realpath(await mkdtemp(join(tmpdir(), 'cc-local-web-server-')))
+  const cwd = await realpath(await mkdtemp(join(tmpdir(), 'jarvis-web-server-')))
   await mkdir(join(cwd, 'workspace'))
   tempDirs.push(cwd)
   return cwd
 }
 
 async function createTempCwdWithoutWorkspace(): Promise<string> {
-  const cwd = await realpath(await mkdtemp(join(tmpdir(), 'cc-local-web-server-')))
+  const cwd = await realpath(await mkdtemp(join(tmpdir(), 'jarvis-web-server-')))
   tempDirs.push(cwd)
   return cwd
 }

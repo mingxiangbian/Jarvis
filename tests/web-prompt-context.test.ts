@@ -16,27 +16,27 @@ afterEach(async () => {
 
 describe('buildAgentRuntime', () => {
   it('builds shared config, system prompt, and core tools for an agent runtime', async () => {
-    const home = await mkdtemp(join(tmpdir(), 'cc-local-web-home-'))
+    const home = await mkdtemp(join(tmpdir(), 'jarvis-web-home-'))
     tempHomes.push(home)
     process.env.HOME = home
     process.env.TZ = 'Asia/Shanghai'
 
     const root = join(home, 'workspace', 'project')
-    const userCcLocalDir = join(home, '.cc-local')
+    const userJarvisDir = join(home, '.jarvis')
 
-    await mkdir(join(root, '.cc-local', 'memory'), { recursive: true })
-    await mkdir(join(home, 'workspace', '.cc-local'), { recursive: true })
-    await mkdir(join(userCcLocalDir, 'memory'), { recursive: true })
-    await writeFile(join(userCcLocalDir, 'soul.md'), 'Be direct.\n')
-    await writeFile(join(userCcLocalDir, 'Rule.md'), 'Global rule.\n')
-    await writeFile(join(home, 'workspace', '.cc-local', 'Rule.md'), 'Workspace rule.\n')
-    await writeFile(join(root, '.cc-local', 'Rule.md'), 'Project rule.\n')
-    await writeFile(join(root, '.cc-local', 'instructions.md'), 'Use TDD.\n')
-    await writeFile(join(root, '.cc-local', 'memory', 'MEMORY.md'), '- [Code Style](style.md) — local style\n')
-    await writeFile(join(root, '.cc-local', 'memory', 'style.md'), 'Prefer small patches.\n')
-    await writeFile(join(userCcLocalDir, 'memory', 'MEMORY.md'), '- [Global Fact](global.md) — global fact\n')
-    await writeFile(join(userCcLocalDir, 'memory', 'global.md'), 'Remember global fact.\n')
-    await writeFile(join(root, '.cc-local', 'memory', 'daily.md'), 'recent one\nrecent two\n')
+    await mkdir(join(root, '.jarvis', 'memory'), { recursive: true })
+    await mkdir(join(home, 'workspace', '.jarvis'), { recursive: true })
+    await mkdir(join(userJarvisDir, 'memory'), { recursive: true })
+    await writeFile(join(userJarvisDir, 'soul.md'), 'Be direct.\n')
+    await writeFile(join(userJarvisDir, 'Rule.md'), 'Global rule.\n')
+    await writeFile(join(home, 'workspace', '.jarvis', 'Rule.md'), 'Workspace rule.\n')
+    await writeFile(join(root, '.jarvis', 'Rule.md'), 'Project rule.\n')
+    await writeFile(join(root, '.jarvis', 'instructions.md'), 'Use TDD.\n')
+    await writeFile(join(root, '.jarvis', 'memory', 'MEMORY.md'), '- [Code Style](style.md) — local style\n')
+    await writeFile(join(root, '.jarvis', 'memory', 'style.md'), 'Prefer small patches.\n')
+    await writeFile(join(userJarvisDir, 'memory', 'MEMORY.md'), '- [Global Fact](global.md) — global fact\n')
+    await writeFile(join(userJarvisDir, 'memory', 'global.md'), 'Remember global fact.\n')
+    await writeFile(join(root, '.jarvis', 'memory', 'daily.md'), 'recent one\nrecent two\n')
 
     const runtime = await buildAgentRuntime(root, new Date('2026-05-20T16:30:00.000Z'))
 
