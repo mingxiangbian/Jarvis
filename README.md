@@ -2,6 +2,13 @@
 
 Local TypeScript agent runtime with a web UI, REPL mode, project-local memory, and file tools scoped to a workspace.
 
+## Repository
+
+- GitHub: `https://github.com/mingxiangbian/Cyrene`
+- Local checkout: `/Users/phoenix/Assistant/Cyrene`
+- Project state: `.cyrene/`
+- Global state: `~/.cyrene/`
+
 ## Portability Status
 
 The Node application is portable across normal Node environments. A local model server is required at runtime, but it only needs to expose an OpenAI-compatible chat completions API.
@@ -27,6 +34,8 @@ cp .env.example .env
 
 - `workspace/`
 - `.cyrene/memory/daily.md`
+
+Global persona, rules, and global memories are read from `~/.cyrene/` when those files exist.
 
 Edit `.env` if your model endpoint or model name differs from the defaults.
 
