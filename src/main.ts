@@ -1,11 +1,16 @@
 #!/usr/bin/env -S npx tsx
 import { Command } from 'commander'
+import { join } from 'node:path'
 import { runAgentLoop } from './agent-loop.js'
 import { createDefaultConfig } from './config.js'
 import { formatConfigDoctor } from './config-doctor.js'
 import { buildInitialMessages } from './context.js'
 import { compactDailyIfNeeded } from './daily-compaction.js'
 import { callModel as defaultCallModel } from './llm-client.js'
+import { migrateLegacyMemory } from './memory/memory-migration.js'
+import { formatMemoryContext, retrieveMemories } from './memory/memory-retriever.js'
+import { createMemorySnapshot, listMemorySnapshots, restoreMemorySnapshot } from './memory/memory-snapshot.js'
+import { readActiveMemories, readMemoryEvents, readPendingMemories } from './memory/memory-store.js'
 import { contextInfoForRoute } from './models/provider-router.js'
 import { runRepl } from './repl.js'
 import { createRunRecorder } from './tracing/run-recorder.js'
@@ -46,6 +51,10 @@ async function main(): Promise<void> {
       process.exit(1)
     }
     process.stdout.write(await renderTraceReplay(options.cwd, program.args[2]))
+    return
+  }
+  if (program.args[0] === 'memory') {
+    await handleMemoryCommand(options.cwd, program.args.slice(1))
     return
   }
 
@@ -121,6 +130,109 @@ async function main(): Promise<void> {
     await recorder.finalize({ status: 'error', finalText: '', error })
     throw error
   }
+}
+
+async function handleMemoryCommand(cwd: string, args: string[]): Promise<void> {
+  const command = args[0]
+  if (command === 'list') {
+    const memories = await readActiveMemories(cwd)
+    process.stdout.write(memories.map(formatMemoryLine).join('\n') + (memories.length === 0 ? '' : '\n'))
+    return
+  }
+
+  if (command === 'pending') {
+    const memories = await readPendingMemories(cwd)
+    process.stdout.write(memories.map(formatMemoryLine).join('\n') + (memories.length === 0 ? '' : '\n'))
+    return
+  }
+
+  if (command === 'events') {
+    const limit = parseLimit(args)
+    process.stdout.write(JSON.stringify(await readMemoryEvents(cwd, limit), null, 2) + '\n')
+    return
+  }
+
+  if (command === 'inspect' && args[1] !== undefined) {
+    const memories = [...(await readActiveMemories(cwd)), ...(await readPendingMemories(cwd))]
+    const memory = memories.find((entry) => entry.id === args[1])
+    if (memory === undefined) {
+      console.error(`Memory not found: ${args[1]}`)
+      process.exit(1)
+    }
+    process.stdout.write(JSON.stringify(memory, null, 2) + '\n')
+    return
+  }
+
+  if (command === 'search' && args.length > 1) {
+    const result = await retrieveMemories({
+      cwd,
+      userCyreneDir: join(cwd, '.cyrene'),
+      query: args.slice(1).join(' '),
+      task: 'memory',
+      maxItems: 10,
+      maxTokens: 1000
+    })
+    process.stdout.write(formatMemoryContext(result))
+    if (result.length > 0) process.stdout.write('\n')
+    return
+  }
+
+  if (command === 'migrate') {
+    process.stdout.write(JSON.stringify(await migrateLegacyMemory(cwd), null, 2) + '\n')
+    return
+  }
+
+  if (command === 'snapshot') {
+    await handleMemorySnapshotCommand(cwd, args.slice(1))
+    return
+  }
+
+  console.error(
+    'Usage: cyrene memory <list|pending|events|inspect <id>|search <query>|migrate|snapshot <list|create|restore>>'
+  )
+  process.exit(1)
+}
+
+async function handleMemorySnapshotCommand(cwd: string, args: string[]): Promise<void> {
+  if (args[0] === 'list') {
+    process.stdout.write(JSON.stringify(await listMemorySnapshots(cwd), null, 2) + '\n')
+    return
+  }
+
+  if (args[0] === 'create') {
+    const reason = args.slice(1).join(' ').trim() || 'manual snapshot'
+    process.stdout.write(JSON.stringify(await createMemorySnapshot(cwd, reason), null, 2) + '\n')
+    return
+  }
+
+  if (args[0] === 'restore' && args[1] !== undefined) {
+    process.stdout.write(
+      JSON.stringify(await restoreMemorySnapshot({ cwd, snapshotId: args[1], dryRun: args.includes('--dry-run') }), null, 2) +
+        '\n'
+    )
+    return
+  }
+
+  console.error('Usage: cyrene memory snapshot <list|create [reason]|restore <snapshotId> [--dry-run]>')
+  process.exit(1)
+}
+
+function formatMemoryLine(memory: {
+  id: string
+  domain: string
+  type: string
+  strength: string
+  scope: string
+  content: string
+}): string {
+  return `${memory.id}\t${memory.domain}/${memory.type}\t${memory.strength}/${memory.scope}\t${memory.content}`
+}
+
+function parseLimit(args: string[]): number | undefined {
+  const index = args.indexOf('--limit')
+  if (index < 0) return undefined
+  const parsed = Number(args[index + 1])
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined
 }
 
 main().catch((error: unknown) => {

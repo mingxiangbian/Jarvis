@@ -75,6 +75,11 @@ export async function readTombstones(cwd: string): Promise<MemoryTombstone[]> {
   return readJsonLines<MemoryTombstone>(join(root, TOMBSTONES_FILE))
 }
 
+export async function writeTombstones(cwd: string, tombstones: MemoryTombstone[]): Promise<void> {
+  const root = await ensureMemoryRoot(cwd)
+  await writeJsonLinesAtomic(join(root, TOMBSTONES_FILE), tombstones)
+}
+
 export async function appendTombstone(cwd: string, tombstone: MemoryTombstone): Promise<void> {
   const root = await ensureMemoryRoot(cwd)
   await appendJsonLine(join(root, TOMBSTONES_FILE), tombstone)
