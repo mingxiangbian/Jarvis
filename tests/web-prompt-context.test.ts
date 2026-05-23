@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { buildAgentRuntime } from '../src/web/prompt-context.js'
 
 const originalHome = process.env.HOME
@@ -9,6 +9,7 @@ const originalTimeZone = process.env.TZ
 const tempHomes: string[] = []
 
 afterEach(async () => {
+  vi.unstubAllEnvs()
   process.env.HOME = originalHome
   process.env.TZ = originalTimeZone
   await Promise.all(tempHomes.splice(0).map((home) => rm(home, { recursive: true, force: true })))
@@ -65,5 +66,22 @@ describe('buildAgentRuntime', () => {
     expect(runtime.tools.map((tool) => tool.name)).toEqual(
       expect.arrayContaining(['file_read', 'file_write', 'file_edit', 'grep', 'glob', 'bash', 'ask_user'])
     )
+    expect(runtime.tools.map((tool) => tool.name)).not.toContain('generate_image')
+  })
+
+  it('uses feature flags when building runtime tools', async () => {
+    vi.stubEnv('CYRENE_ENABLE_BASH', '0')
+    vi.stubEnv('CYRENE_ENABLE_WEB_SEARCH', '0')
+    const home = await mkdtemp(join(tmpdir(), 'cyrene-web-home-'))
+    tempHomes.push(home)
+    process.env.HOME = home
+
+    const root = join(home, 'workspace', 'project')
+    await mkdir(join(root, '.cyrene', 'memory'), { recursive: true })
+
+    const runtime = await buildAgentRuntime(root)
+    const names = runtime.tools.map((tool) => tool.name)
+
+    expect(names).toEqual(['file_read', 'file_write', 'file_edit', 'grep', 'glob', 'ask_user'])
   })
 })
