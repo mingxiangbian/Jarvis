@@ -600,6 +600,55 @@ describe('startWebServer', () => {
     } satisfies Partial<CallModelInput>))
   })
 
+  it('creates a persistent trace using the Web run id', async () => {
+    const cwd = await createTempCwd()
+    const callModel = vi.fn(async (_input: CallModelInput): Promise<ModelResponse> => ({ content: 'web trace answer', toolCalls: [] }))
+    const server = await startWebServer({
+      cwd,
+      host: '127.0.0.1',
+      port: 0,
+      callModel
+    })
+    servers.push(server)
+
+    const createResponse = await fetch(`${server.url}/api/runs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ message: 'trace web' })
+    })
+    const createBody = (await createResponse.json()) as { runId: string; sessionId: string }
+
+    expect(createResponse.status).toBe(202)
+    await readRunEventStream(`${server.url}/api/runs/${createBody.runId}/events`)
+
+    const traceDir = join(cwd, '.cyrene', 'runs', createBody.runId)
+    const input = JSON.parse(await readFile(join(traceDir, 'input.json'), 'utf8')) as {
+      mode: string
+      runId: string
+      sessionId: string
+      userMessage: { role: string; content: string }
+    }
+    expect(input).toEqual(expect.objectContaining({
+      mode: 'web',
+      runId: createBody.runId,
+      sessionId: createBody.sessionId,
+      userMessage: { role: 'user', content: 'trace web' }
+    }))
+
+    const messages = (await readFile(join(traceDir, 'messages.jsonl'), 'utf8'))
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as { message: { role: string; content: string } })
+      .map((line) => line.message)
+    expect(messages).toEqual([
+      { role: 'user', content: 'trace web' },
+      { role: 'assistant', content: 'web trace answer' }
+    ])
+
+    const metrics = JSON.parse(await readFile(join(traceDir, 'metrics.json'), 'utf8')) as { status: string }
+    expect(metrics.status).toBe('ok')
+  })
+
   it('returns model context for run creation and thinking events', async () => {
     vi.stubEnv('CYRENE_BASE_URL', 'https://api.deepseek.com')
     vi.stubEnv('CYRENE_MODEL', 'deepseek-v4-pro')

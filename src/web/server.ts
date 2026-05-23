@@ -10,7 +10,7 @@ import {
   compactDailyIfNeeded as defaultCompactDailyIfNeeded,
   type CompactDailyIfNeededInput
 } from '../daily-compaction.js'
-import type { CallModelInput, ChatMessage, ChatRole, ModelResponse } from '../llm-client.js'
+import { callModel as defaultCallModel, type CallModelInput, type ChatMessage, type ChatRole, type ModelResponse } from '../llm-client.js'
 import { contextInfoForRoute } from '../models/provider-router.js'
 import type { ModelContextInfo, ThinkingMode } from '../models/types.js'
 import {
@@ -22,6 +22,7 @@ import {
   updateSessionPinned,
   type SessionIndexItem
 } from '../session-store.js'
+import { createRunRecorder } from '../tracing/run-recorder.js'
 import { buildAgentRuntime } from './prompt-context.js'
 import { createWebObserver, errorEvent, type WebRunEvent } from './web-observer.js'
 import {
@@ -339,29 +340,45 @@ async function runWebAgent(
   callModel?: (input: CallModelInput) => Promise<ModelResponse>,
   compactDailyIfNeeded?: (input: CompactDailyIfNeededInput) => Promise<void>
 ): Promise<void> {
+  const recorder = await createRunRecorder({
+    cwd: record.cwd,
+    runId: record.id,
+    mode: 'web',
+    workspaceId: record.workspace.id,
+    workspacePath: record.workspace.absolutePath,
+    sessionId: record.sessionId,
+    userMessage: record.userMessage,
+    modelContext: record.modelContext
+  })
+  let modelMessages: ChatMessage[] | undefined
+  let currentTurnStartIndex = 0
   try {
     const runtime = await buildAgentRuntime(record.workspace.absolutePath, new Date(), {
       thinkingMode: record.thinkingMode
     })
-    const modelMessages: ChatMessage[] = [{ role: 'system', content: runtime.systemPrompt }, ...record.messages]
+    modelMessages = [{ role: 'system', content: runtime.systemPrompt }, ...record.messages]
     const persistedStartIndex = modelMessages.length
+    currentTurnStartIndex = Math.max(1, modelMessages.length - 1)
     const result = await runAgentLoop({
       config: runtime.config,
       tools: runtime.tools,
       messages: modelMessages,
-      observer: createWebObserver((event) => {
+      observer: recorder.createObserver(createWebObserver((event) => {
         if (event.type !== 'final') {
           emit(record, event)
         }
-      }),
-      callModel
+      })),
+      callModel: recorder.wrapCallModel(callModel ?? defaultCallModel)
     })
+    const traceMessages = modelMessages.slice(currentTurnStartIndex)
     await appendRunModelMessages({
       cwd: record.cwd,
       sessionId: record.sessionId,
       messages: modelMessages.slice(persistedStartIndex),
       fallbackFinalText: result.finalText
     })
+    await recorder.recordMessages(traceMessages)
+    await recorder.finalize({ status: 'ok', finalText: result.finalText })
     emit(record, { type: 'final', text: result.finalText })
     try {
       await (compactDailyIfNeeded ?? defaultCompactDailyIfNeeded)({
@@ -373,6 +390,8 @@ async function runWebAgent(
       // Daily compaction is best effort and must not change Web run results.
     }
   } catch (error) {
+    await recorder.recordMessages(modelMessages?.slice(currentTurnStartIndex) ?? [record.userMessage])
+    await recorder.finalize({ status: 'error', finalText: '', error })
     await appendSessionEvent({
       cwd: record.cwd,
       sessionId: record.sessionId,

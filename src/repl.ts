@@ -8,8 +8,10 @@ import {
   type CompactDailyIfNeededInput
 } from './daily-compaction.js'
 import { callModel as defaultCallModel, type CallModelInput, type ChatMessage, type ModelResponse } from './llm-client.js'
+import { contextInfoForRoute } from './models/provider-router.js'
 import { appendSessionEvent, createSession, loadSession } from './session-store.js'
 import type { Tool, ToolContext } from './tools/types.js'
+import { createRunRecorder } from './tracing/run-recorder.js'
 import { createTerminalObserver, renderWelcome, type AgentObserver } from './ui-observer.js'
 
 export interface RunReplTurnInput {
@@ -68,6 +70,7 @@ export async function runReplTurn(input: RunReplTurnInput): Promise<RunReplTurnR
 
   const userMessage: ChatMessage = { role: 'user', content: text }
   input.messages.push(userMessage)
+  const turnStartIndex = input.messages.length - 1
 
   if (input.session !== undefined) {
     if (input.session.sessionId === undefined) {
@@ -87,17 +90,45 @@ export async function runReplTurn(input: RunReplTurnInput): Promise<RunReplTurnR
     }
   }
 
+  const recorder = input.session?.sessionId === undefined
+    ? undefined
+    : await createRunRecorder({
+        cwd: input.session.cwd,
+        mode: 'repl',
+        sessionId: input.session.sessionId,
+        userMessage,
+        modelContext: contextInfoForRoute(input.config, 'chat')
+      })
   let result: Awaited<ReturnType<typeof runAgentLoop>>
   try {
     result = await runAgentLoop({
       config: input.config,
       messages: input.messages,
       tools: input.tools,
-      observer: input.observer,
+      observer: recorder?.createObserver(input.observer) ?? input.observer,
       toolContext: input.toolContext,
-      callModel: input.callModel
+      callModel: recorder?.wrapCallModel(input.callModel ?? defaultCallModel) ?? input.callModel
     })
+
+    if (input.session?.sessionId !== undefined) {
+      await appendSessionEvent({
+        cwd: input.session.cwd,
+        sessionId: input.session.sessionId,
+        event: { type: 'message', message: { role: 'assistant', content: result.finalText } }
+      })
+    }
+
+    if (recorder !== undefined) {
+      await recorder.recordMessages(input.messages.slice(turnStartIndex))
+      await recorder.finalize({ status: 'ok', finalText: result.finalText })
+    }
+
+    return { kind: 'agent', finalText: result.finalText, toolCallCount: result.toolCallCount }
   } catch (error) {
+    if (recorder !== undefined) {
+      await recorder.recordMessages(input.messages.slice(turnStartIndex))
+      await recorder.finalize({ status: 'error', finalText: '', error })
+    }
     if (input.session?.sessionId !== undefined) {
       await appendSessionEvent({
         cwd: input.session.cwd,
@@ -110,16 +141,6 @@ export async function runReplTurn(input: RunReplTurnInput): Promise<RunReplTurnR
     }
     throw error
   }
-
-  if (input.session?.sessionId !== undefined) {
-    await appendSessionEvent({
-      cwd: input.session.cwd,
-      sessionId: input.session.sessionId,
-      event: { type: 'message', message: { role: 'assistant', content: result.finalText } }
-    })
-  }
-
-  return { kind: 'agent', finalText: result.finalText, toolCallCount: result.toolCallCount }
 }
 
 export async function runRepl(inputConfig: {

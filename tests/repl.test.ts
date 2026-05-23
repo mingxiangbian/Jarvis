@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -265,6 +265,40 @@ describe('runReplTurn', () => {
 
     expect(result).toEqual({ kind: 'agent', finalText: 'hello back', toolCallCount: 0 })
     expect(events).toEqual(['thinking:start', 'thinking:stop', 'response'])
+  })
+
+  it('creates a trace for a persisted REPL turn', async () => {
+    const root = await createTempDir()
+    const config = createDefaultConfig(root)
+    const messages: ChatMessage[] = [{ role: 'system', content: 'system rules' }]
+    const session: { cwd: string; sessionId?: string } = { cwd: root }
+
+    const result = await runReplTurn({
+      config,
+      messages,
+      input: 'trace repl',
+      tools: [],
+      session,
+      callModel: async (): Promise<ModelResponse> => ({ content: 'repl answer', toolCalls: [] })
+    })
+
+    expect(result).toEqual({ kind: 'agent', finalText: 'repl answer', toolCallCount: 0 })
+    expect(session.sessionId).toEqual(expect.any(String))
+    const [runId] = await readdir(join(root, '.cyrene', 'runs'))
+    expect(runId).toEqual(expect.any(String))
+    const traceInput = JSON.parse(await readFile(join(root, '.cyrene', 'runs', runId, 'input.json'), 'utf8')) as {
+      mode: string
+      sessionId: string
+    }
+    expect(traceInput).toEqual(expect.objectContaining({ mode: 'repl', sessionId: session.sessionId }))
+    const messageLines = (await readFile(join(root, '.cyrene', 'runs', runId, 'messages.jsonl'), 'utf8'))
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as { message: ChatMessage })
+    expect(messageLines.map((line) => line.message)).toEqual([
+      { role: 'user', content: 'trace repl' },
+      { role: 'assistant', content: 'repl answer' }
+    ])
   })
 })
 
