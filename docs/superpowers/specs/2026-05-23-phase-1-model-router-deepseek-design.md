@@ -191,6 +191,38 @@ Cyrene 已有 `thinking_start` / `thinking_stop` observer event。Phase 1 在 UI
 
 这属于状态展示，不改变 agent loop 行为。
 
+## Web UI Context Usage Meter
+
+当前 Web UI 的 context usage 估算默认使用 `256_000`。Phase 1 引入 model capability 后，Web UI 不能继续使用固定窗口，否则 `deepseek-v4-pro` 的 1M context 会被显示成接近 4 倍的用量。
+
+后端应向 Web UI 暴露当前 interactive route 的 context metadata：
+
+```ts
+export interface WebModelContextInfo {
+  provider: string;
+  model: string;
+  useCase: 'chat' | 'coding' | 'planning';
+  contextWindowTokens: number;
+  thinkingMode: ThinkingMode;
+}
+```
+
+Web UI 的 context meter 使用：
+
+```txt
+contextUsagePercent(messages, draft, modelContext.contextWindowTokens)
+```
+
+显示策略：
+
+- composer 旁的 ring 仍显示百分比。
+- `aria-label` / `title` 包含 model 和 context window，例如 `Context usage 18% of deepseek-v4-pro 1M`。
+- inspector context panel 可显示 `tokens used / context window / auto-compact threshold`。
+- 主聊天 meter 只跟随 interactive route，不跟随 `summarization`、`memory_extraction`、`affect_analysis` 等后台 cheap route，避免用户看到 meter 因后台任务切换模型而跳动。
+- 如果 provider capability 不可用，回退到 `config.contextWindowTokens`，并在 `config doctor` 或 Web metadata 中标记 fallback。
+
+这项变更和 thinking indicator 一样属于 Web 状态展示，但它必须使用 router 的 effective route metadata，否则 UI 与 runtime 压缩策略会不一致。
+
 ## Cost 和 Usage
 
 Provider response 归一化为：
@@ -262,6 +294,8 @@ tests/agent-loop.test.ts
 tests/web-static-helpers.test.mjs
   - renders thinking indicator state
   - renders route label without exposing reasoning_content
+  - computes context usage with backend-provided contextWindowTokens
+  - labels context usage with model and context window
 ```
 
 验证命令：
@@ -288,6 +322,7 @@ npm run dev -- "用一句话回复 ok"
 - DeepSeek thinking + tool calls 的 `reasoning_content` 可正确保存和 replay。
 - `agent-loop` 不包含 DeepSeek 专属字段。
 - Web UI thinking indicator 有状态动效，但不展示 raw `reasoning_content`。
+- Web UI context usage 使用 interactive route 的 effective context window，不再固定 `256_000`。
 - `deepseek-v4-pro` capability 使 Cyrene 能使用 1M context window，而不是继续被 `256_000` 硬编码提前压缩。
 - `npm run typecheck` 和 `npm test` 通过。
 
