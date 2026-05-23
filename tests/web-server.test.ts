@@ -2,7 +2,6 @@ import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { CompactDailyIfNeededInput } from '../src/daily-compaction.js'
 import type { CallModelInput, ModelResponse } from '../src/llm-client.js'
 import { startWebServer, type WebServerHandle } from '../src/web/server.js'
 
@@ -736,13 +735,11 @@ describe('startWebServer', () => {
   it('does not delegate legacy daily compaction after successful runs', async () => {
     const cwd = await createTempCwd()
     const callModel = vi.fn(async (_input: CallModelInput): Promise<ModelResponse> => ({ content: 'web answer', toolCalls: [] }))
-    const compactDailyIfNeeded = vi.fn(async (_input: CompactDailyIfNeededInput) => {})
     const server = await startWebServer({
       cwd,
       host: '127.0.0.1',
       port: 0,
-      callModel,
-      compactDailyIfNeeded
+      callModel
     })
     servers.push(server)
 
@@ -758,15 +755,13 @@ describe('startWebServer', () => {
     await server.close()
     servers.pop()
 
-    expect(compactDailyIfNeeded).not.toHaveBeenCalled()
   })
 
   it('does not delegate legacy daily compaction after failed runs', async () => {
-    const compactDailyIfNeeded = vi.fn(async (_input: CompactDailyIfNeededInput) => {})
     const callModel = vi.fn(async (): Promise<ModelResponse> => {
       throw new Error('model unavailable')
     })
-    const server = await startServer(callModel, compactDailyIfNeeded)
+    const server = await startServer(callModel)
 
     const createResponse = await fetch(`${server.url}/api/runs`, {
       method: 'POST',
@@ -778,15 +773,11 @@ describe('startWebServer', () => {
 
     await readRunEventStream(`${server.url}/api/runs/${createBody.runId}/events`)
 
-    expect(compactDailyIfNeeded).not.toHaveBeenCalled()
   })
 
-  it('ignores injected legacy daily compaction hooks', async () => {
-    const compactDailyIfNeeded = vi.fn(async (_input: CompactDailyIfNeededInput) => {
-      throw new Error('compaction failed')
-    })
+  it('streams final responses without legacy daily compaction hooks', async () => {
     const callModel = vi.fn(async (_input: CallModelInput): Promise<ModelResponse> => ({ content: 'web answer', toolCalls: [] }))
-    const server = await startServer(callModel, compactDailyIfNeeded)
+    const server = await startServer(callModel)
 
     const createResponse = await fetch(`${server.url}/api/runs`, {
       method: 'POST',
@@ -800,10 +791,8 @@ describe('startWebServer', () => {
 
     const { body: replayBody } = await readRunEventStream(`${server.url}/api/runs/${createBody.runId}/events`)
 
-    expect(compactDailyIfNeeded).not.toHaveBeenCalled()
     expect(replayBody).toContain('"type":"final","text":"web answer"')
     expect(replayBody).not.toContain('"type":"error"')
-    expect(replayBody).not.toContain('compaction failed')
   })
 
   it('streams tool events before the final response', async () => {
@@ -1461,8 +1450,7 @@ describe('startWebServer', () => {
 })
 
 async function startServer(
-  callModel?: (input: CallModelInput) => Promise<ModelResponse>,
-  compactDailyIfNeeded?: (input: CompactDailyIfNeededInput) => Promise<void>
+  callModel?: (input: CallModelInput) => Promise<ModelResponse>
 ): Promise<WebServerHandle> {
   vi.stubEnv('CYRENE_MEMORY_AUTO_EXTRACT', '0')
   const cwd = await createTempCwd()
@@ -1470,8 +1458,7 @@ async function startServer(
     cwd,
     host: '127.0.0.1',
     port: 0,
-    callModel: callModel ?? (async (): Promise<ModelResponse> => ({ content: 'unused', toolCalls: [] })),
-    compactDailyIfNeeded
+    callModel: callModel ?? (async (): Promise<ModelResponse> => ({ content: 'unused', toolCalls: [] }))
   })
   servers.push(server)
   return server

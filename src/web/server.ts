@@ -6,10 +6,6 @@ import { dirname, extname, join, normalize, resolve, sep } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { runAgentLoop } from '../agent-loop.js'
-import {
-  compactDailyIfNeeded as defaultCompactDailyIfNeeded,
-  type CompactDailyIfNeededInput
-} from '../daily-compaction.js'
 import { callModel as defaultCallModel, type CallModelInput, type ChatMessage, type ChatRole, type ModelResponse } from '../llm-client.js'
 import { contextInfoForRoute } from '../models/provider-router.js'
 import type { ModelContextInfo, ThinkingMode } from '../models/types.js'
@@ -39,7 +35,6 @@ export interface StartWebServerInput {
   host: string
   port: number
   callModel?: (input: CallModelInput) => Promise<ModelResponse>
-  compactDailyIfNeeded?: (input: CompactDailyIfNeededInput) => Promise<void>
 }
 
 export interface WebServerHandle {
@@ -64,7 +59,6 @@ interface RunRecord {
 interface WebServerContext {
   cwd: string
   callModel?: (input: CallModelInput) => Promise<ModelResponse>
-  compactDailyIfNeeded?: (input: CompactDailyIfNeededInput) => Promise<void>
   runs: Map<string, RunRecord>
   activeRuns: Set<Promise<void>>
   runtime: Awaited<ReturnType<typeof buildAgentRuntime>>
@@ -89,7 +83,6 @@ export async function startWebServer(input: StartWebServerInput): Promise<WebSer
     void routeRequest(request, response, {
       activeRuns,
       callModel: input.callModel,
-      compactDailyIfNeeded: input.compactDailyIfNeeded,
       cwd: input.cwd,
       runs,
       runtime
