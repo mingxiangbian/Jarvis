@@ -55,7 +55,7 @@ src/web/static/*              // 本次不做 Trace 面板
 - Create: `src/tracing/trace-store.ts`
 - Test: `tests/trace-store.test.ts`
 
-- [ ] **Step 1: Write failing trace-store tests**
+- [x] **Step 1: Write failing trace-store tests**
 
 Create `tests/trace-store.test.ts`:
 
@@ -153,7 +153,7 @@ describe('trace-store', () => {
 })
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run:
 
@@ -163,7 +163,7 @@ npm test -- tests/trace-store.test.ts
 
 Expected: FAIL because `src/tracing/trace-store.ts` does not exist.
 
-- [ ] **Step 3: Add trace types**
+- [x] **Step 3: Add trace types**
 
 Create `src/tracing/types.ts`:
 
@@ -239,7 +239,7 @@ export interface TraceMetrics {
 }
 ```
 
-- [ ] **Step 4: Implement trace-store**
+- [x] **Step 4: Implement trace-store**
 
 Create `src/tracing/trace-store.ts`:
 
@@ -330,7 +330,7 @@ async function writeJson(path: string, value: unknown): Promise<void> {
 }
 ```
 
-- [ ] **Step 5: Verify trace-store**
+- [x] **Step 5: Verify trace-store**
 
 Run:
 
@@ -340,7 +340,7 @@ npm test -- tests/trace-store.test.ts
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit trace-store**
+- [x] **Step 6: Commit trace-store**
 
 ```bash
 git add src/tracing/types.ts src/tracing/trace-store.ts tests/trace-store.test.ts
@@ -359,7 +359,7 @@ git commit -m "feat: add trace store"
 - Test: `tests/run-recorder.test.ts`
 - Test: `tests/agent-loop.test.ts`
 
-- [ ] **Step 1: Write failing recorder tests**
+- [x] **Step 1: Write failing recorder tests**
 
 Create `tests/run-recorder.test.ts`:
 
@@ -487,7 +487,7 @@ describe('run-recorder', () => {
 })
 ```
 
-- [ ] **Step 2: Add failing agent-loop observer id test**
+- [x] **Step 2: Add failing agent-loop observer id test**
 
 In `tests/agent-loop.test.ts`, add a focused test near existing observer/tool tests:
 
@@ -531,7 +531,7 @@ it('passes tool call ids to observer tool events', async () => {
 })
 ```
 
-- [ ] **Step 3: Run tests to verify failure**
+- [x] **Step 3: Run tests to verify failure**
 
 Run:
 
@@ -541,7 +541,7 @@ npm test -- tests/run-recorder.test.ts tests/agent-loop.test.ts
 
 Expected: FAIL because `createRunRecorder` does not exist and `AgentObserver` does not expose `toolCallId`.
 
-- [ ] **Step 4: Extend AgentObserver tool event signatures**
+- [x] **Step 4: Extend AgentObserver tool event signatures**
 
 Modify `src/ui-observer.ts`:
 
@@ -557,7 +557,7 @@ export interface AgentObserver {
 
 No other terminal observer behavior changes are needed.
 
-- [ ] **Step 5: Pass toolCall.id from agent-loop**
+- [x] **Step 5: Pass toolCall.id from agent-loop**
 
 Modify `src/agent-loop.ts` where tool observer events fire:
 
@@ -577,7 +577,7 @@ observer?.onToolCallResult(
 )
 ```
 
-- [ ] **Step 6: Keep Web observer compatible**
+- [x] **Step 6: Keep Web observer compatible**
 
 Modify `src/web/web-observer.ts` signatures only:
 
@@ -588,7 +588,7 @@ onToolCallResult(name: string, ok: boolean, durationMs: number, summary: string,
 
 Do not add `toolCallId` to SSE events in this phase.
 
-- [ ] **Step 7: Implement run-recorder**
+- [x] **Step 7: Implement run-recorder**
 
 Create `src/tracing/run-recorder.ts`:
 
@@ -791,7 +791,7 @@ function errorMessage(error: unknown): string {
 }
 ```
 
-- [ ] **Step 8: Verify recorder and observer id tests**
+- [x] **Step 8: Verify recorder and observer id tests**
 
 Run:
 
@@ -801,7 +801,7 @@ npm test -- tests/run-recorder.test.ts tests/agent-loop.test.ts
 
 Expected: PASS.
 
-- [ ] **Step 9: Commit recorder**
+- [x] **Step 9: Commit recorder**
 
 ```bash
 git add src/tracing/run-recorder.ts src/ui-observer.ts src/web/web-observer.ts src/agent-loop.ts tests/run-recorder.test.ts tests/agent-loop.test.ts
@@ -818,7 +818,7 @@ git commit -m "feat: record trace model and tool events"
 - Test: `tests/replay.test.ts`
 - Test: `tests/main-cli.test.ts`
 
-- [ ] **Step 1: Write failing replay tests**
+- [x] **Step 1: Write failing replay tests**
 
 Create `tests/replay.test.ts`:
 
@@ -873,7 +873,7 @@ describe('trace replay', () => {
 })
 ```
 
-- [ ] **Step 2: Add failing CLI replay test**
+- [x] **Step 2: Add failing CLI replay test**
 
 In `tests/main-cli.test.ts`, add:
 
@@ -924,7 +924,7 @@ it('creates a trace for one-shot runs and replays it from the CLI', async () => 
 })
 ```
 
-- [ ] **Step 3: Run tests to verify failure**
+- [x] **Step 3: Run tests to verify failure**
 
 Run:
 
@@ -934,7 +934,7 @@ npm test -- tests/replay.test.ts tests/main-cli.test.ts
 
 Expected: FAIL because replay helpers and CLI command do not exist.
 
-- [ ] **Step 4: Implement replay helpers**
+- [x] **Step 4: Implement replay helpers**
 
 Create `src/tracing/replay.ts`:
 
@@ -1000,7 +1000,7 @@ function isObject(value: unknown): value is Record<string, unknown> {
 }
 ```
 
-- [ ] **Step 5: Add CLI trace replay and one-shot tracing**
+- [x] **Step 5: Add CLI trace replay and one-shot tracing**
 
 Modify `src/main.ts`:
 
@@ -1062,7 +1062,7 @@ try {
 }
 ```
 
-- [ ] **Step 6: Verify replay and CLI**
+- [x] **Step 6: Verify replay and CLI**
 
 Run:
 
@@ -1072,7 +1072,7 @@ npm test -- tests/replay.test.ts tests/main-cli.test.ts
 
 Expected: PASS. If existing CLI tests expect empty stderr for successful one-shot runs, update only those one-shot expectations to allow `trace: .cyrene/runs/...`; do not hide the trace line.
 
-- [ ] **Step 7: Commit replay and CLI tracing**
+- [x] **Step 7: Commit replay and CLI tracing**
 
 ```bash
 git add src/tracing/replay.ts src/main.ts tests/replay.test.ts tests/main-cli.test.ts
@@ -1089,7 +1089,7 @@ git commit -m "feat: add trace replay command"
 - Test: `tests/repl.test.ts`
 - Test: `tests/web-server.test.ts`
 
-- [ ] **Step 1: Add failing REPL trace test**
+- [x] **Step 1: Add failing REPL trace test**
 
 In `tests/repl.test.ts`, add:
 
@@ -1118,7 +1118,7 @@ it('creates a trace for each agent turn', async () => {
 
 Add `readdir` to the `node:fs/promises` import.
 
-- [ ] **Step 2: Add failing Web trace test**
+- [x] **Step 2: Add failing Web trace test**
 
 In `tests/web-server.test.ts`, add near run tests:
 
@@ -1149,7 +1149,7 @@ it('creates a persistent trace using the Web run id', async () => {
 })
 ```
 
-- [ ] **Step 3: Run tests to verify failure**
+- [x] **Step 3: Run tests to verify failure**
 
 Run:
 
@@ -1159,7 +1159,7 @@ npm test -- tests/repl.test.ts tests/web-server.test.ts
 
 Expected: FAIL because REPL/Web do not create traces yet.
 
-- [ ] **Step 4: Integrate recorder into REPL turns**
+- [x] **Step 4: Integrate recorder into REPL turns**
 
 Modify `src/repl.ts` imports:
 
@@ -1197,7 +1197,7 @@ await recorder.recordMessages(input.messages.slice(turnStartIndex))
 await recorder.finalize({ status: 'error', finalText: '', error })
 ```
 
-- [ ] **Step 5: Integrate recorder into Web runs**
+- [x] **Step 5: Integrate recorder into Web runs**
 
 Modify `src/web/server.ts` imports:
 
@@ -1247,7 +1247,7 @@ await recorder?.recordMessages(modelMessages.slice(persistedStartIndex)).catch((
 await recorder?.finalize({ status: 'error', finalText: '', error }).catch(() => {})
 ```
 
-- [ ] **Step 6: Verify REPL/Web**
+- [x] **Step 6: Verify REPL/Web**
 
 Run:
 
@@ -1257,7 +1257,7 @@ npm test -- tests/repl.test.ts tests/web-server.test.ts
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit REPL/Web integration**
+- [x] **Step 7: Commit REPL/Web integration**
 
 ```bash
 git add src/repl.ts src/web/server.ts tests/repl.test.ts tests/web-server.test.ts
@@ -1271,7 +1271,7 @@ git commit -m "feat: trace repl and web runs"
 **Files:**
 - Modify: `docs/superpowers/plans/2026-05-23-phase-2-trace-store-replay.md`
 
-- [ ] **Step 1: Run full typecheck**
+- [x] **Step 1: Run full typecheck**
 
 Run:
 
@@ -1281,7 +1281,7 @@ npm run typecheck
 
 Expected: PASS.
 
-- [ ] **Step 2: Run full test suite**
+- [x] **Step 2: Run full test suite**
 
 Run:
 
@@ -1291,7 +1291,7 @@ npm test
 
 Expected: PASS.
 
-- [ ] **Step 3: Run CLI replay smoke test**
+- [x] **Step 3: Run CLI replay smoke test**
 
 Run the CLI trace test directly:
 
@@ -1301,11 +1301,11 @@ npm test -- tests/main-cli.test.ts
 
 Expected: PASS. The `creates a trace for one-shot runs and replays it from the CLI` test proves the command path.
 
-- [ ] **Step 4: Mark completed plan checkboxes**
+- [x] **Step 4: Mark completed plan checkboxes**
 
 Update this plan file from `- [ ]` to `- [x]` only for completed steps.
 
-- [ ] **Step 5: Commit final plan status if changed**
+- [x] **Step 5: Commit final plan status if changed**
 
 ```bash
 git add docs/superpowers/plans/2026-05-23-phase-2-trace-store-replay.md
