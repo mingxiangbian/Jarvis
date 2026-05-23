@@ -30,6 +30,11 @@ export async function readPendingMemories(cwd: string): Promise<PendingMemory[]>
   return (await readJsonLines<PendingMemory>(join(root, PENDING_FILE))).filter((memory) => memory.status === 'pending')
 }
 
+export async function writePendingMemories(cwd: string, memories: PendingMemory[]): Promise<void> {
+  const root = await ensureMemoryRoot(cwd)
+  await writeJsonLinesAtomic(join(root, PENDING_FILE), memories.filter((memory) => memory.status === 'pending'))
+}
+
 export async function upsertPendingMemory(cwd: string, candidate: PendingMemory): Promise<PendingMemory> {
   const root = await ensureMemoryRoot(cwd)
   const pending = await readPendingMemories(cwd)
