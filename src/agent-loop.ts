@@ -1,4 +1,3 @@
-import { basename } from 'node:path'
 import {
   buildInitialMessages,
   collapseConsecutiveCalls,
@@ -13,7 +12,7 @@ import { callModel as defaultCallModel, type CallModelInput, type ChatMessage, t
 import { contextInfoForRoute } from './models/provider-router.js'
 import { estimateTokensForMessages } from './token-counter.js'
 import { executeToolCall, toolDefinitions } from './tools/index.js'
-import type { Tool, ToolContext, ToolResult } from './tools/types.js'
+import type { Tool, ToolContext } from './tools/types.js'
 import { toolCallSummary, truncateOneLine, type AgentObserver } from './ui-observer.js'
 
 const WEB_SEARCH_UNAVAILABLE_MESSAGE = 'Web search has failed twice consecutively and appears unavailable. Use grep, glob, and file_read for local-only work. Do not call web_search again in this session.'
@@ -191,22 +190,6 @@ export async function runAgentLoop(input: RunAgentLoopInput): Promise<RunAgentLo
         content: compactToolResult(result.content, 120)
       })
 
-      const requestedFileFailure = explicitRequestedFileReadFailure(
-        dailySummaryUserPrompt,
-        name,
-        toolCall.function.arguments,
-        result
-      )
-      if (requestedFileFailure !== undefined) {
-        messages.push({ role: 'assistant', content: requestedFileFailure })
-        notifyObserver(() => observer?.onResponse(requestedFileFailure))
-        await appendDailySummaryAfterFinal(input, dailySummaryUserPrompt, requestedFileFailure, callModel)
-        return {
-          finalText: requestedFileFailure,
-          toolCallCount
-        }
-      }
-
       if (name === 'web_search' && !context.unavailableTools.has('web_search')) {
         updateWebSearchAvailability(context, result.ok, messages)
       }
@@ -281,55 +264,6 @@ function notifyObserver(action: () => void): void {
 
 function summarizeToolResult(content: string, ok: boolean): string {
   return truncateOneLine(content, ok ? 60 : 80)
-}
-
-function explicitRequestedFileReadFailure(
-  userPrompt: string | undefined,
-  toolName: string,
-  argumentsText: string,
-  result: ToolResult
-): string | undefined {
-  if (result.ok || userPrompt === undefined || toolName !== 'file_read') {
-    return undefined
-  }
-
-  const filePath = parseFileReadPath(argumentsText)
-  if (filePath === undefined || !isExplicitlyRequestedFile(userPrompt, filePath)) {
-    return undefined
-  }
-
-  return [
-    `Unable to read requested file \`${filePath}\`.`,
-    '',
-    result.content,
-    '',
-    'I will not use another file as a substitute unless you ask me to.'
-  ].join('\n')
-}
-
-function parseFileReadPath(argumentsText: string): string | undefined {
-  try {
-    const parsed = JSON.parse(argumentsText) as unknown
-    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      return undefined
-    }
-
-    const filePath = (parsed as Record<string, unknown>).file_path
-    return typeof filePath === 'string' && filePath.trim().length > 0 ? filePath : undefined
-  } catch {
-    return undefined
-  }
-}
-
-function isExplicitlyRequestedFile(userPrompt: string, filePath: string): boolean {
-  const normalizedPrompt = userPrompt.toLowerCase()
-  const normalizedPath = filePath.toLowerCase()
-  if (normalizedPrompt.includes(normalizedPath)) {
-    return true
-  }
-
-  const fileName = basename(filePath).toLowerCase()
-  return fileName.length > 0 && normalizedPrompt.includes(fileName)
 }
 
 function messageSignature(messages: ChatMessage[]): string {

@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { z } from 'zod'
@@ -6,7 +6,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { runAgentLoop } from '../src/agent-loop.js'
 import { createDefaultConfig } from '../src/config.js'
 import type { ChatMessage, ModelResponse } from '../src/llm-client.js'
-import { fileReadTool } from '../src/tools/file-read.js'
 import type { Tool, ToolContext } from '../src/tools/types.js'
 import type { AgentObserver } from '../src/ui-observer.js'
 
@@ -128,50 +127,6 @@ describe('runAgentLoop', () => {
     expect(result.toolCallCount).toBe(1)
     expect(modelCalls).toBe(1)
     expect(maybeAppendDailySummary).not.toHaveBeenCalled()
-  })
-
-  it('stops when a user-requested file is missing instead of falling back to another file', async () => {
-    const cwd = await createTempDir()
-    await writeFile(join(cwd, 'README.md'), '# Wrong fallback\n')
-    const config = createDefaultConfig(cwd)
-    let modelCallCount = 0
-
-    const result = await runAgentLoop({
-      config,
-      systemPrompt: 'system',
-      userPrompt: 'Please inspect package.json and summarize this project.',
-      tools: [fileReadTool],
-      callModel: async (): Promise<ModelResponse> => {
-        modelCallCount += 1
-        if (modelCallCount > 1) {
-          return {
-            content: '',
-            toolCalls: [
-              {
-                id: 'read-readme',
-                type: 'function',
-                function: { name: 'file_read', arguments: JSON.stringify({ file_path: 'README.md' }) }
-              }
-            ]
-          }
-        }
-
-        return {
-          content: '',
-          toolCalls: [
-            {
-              id: 'read-package',
-              type: 'function',
-              function: { name: 'file_read', arguments: JSON.stringify({ file_path: 'package.json' }) }
-            }
-          ]
-        }
-      }
-    })
-
-    expect(modelCallCount).toBe(1)
-    expect(result.finalText).toContain('Unable to read requested file `package.json`')
-    expect(result.finalText).not.toContain('Wrong fallback')
   })
 
   it('compacts history when token count exceeds threshold', async () => {
