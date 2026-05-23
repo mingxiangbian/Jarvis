@@ -45,6 +45,22 @@ export function validateMemoryCandidate(input: ValidateMemoryCandidateInput): Me
     }
   }
 
+  if (isTentativeOrRecentPersonalMemory(candidate)) {
+    return {
+      action: 'pending',
+      reason: 'Tentative or recent personal memory requires repeated evidence',
+      candidate: { ...candidate, strength: 'soft' }
+    }
+  }
+
+  if (isMemoryRecallQuestion(candidate)) {
+    return {
+      action: 'pending',
+      reason: 'Memory recall questions require confirmation before creating new rules',
+      candidate
+    }
+  }
+
   if (!isAutoWritable(candidate)) {
     return {
       action: 'pending',
@@ -165,6 +181,42 @@ function hasAssistantDerivedEvidence(candidate: PendingMemory): boolean {
       text.includes('without correction')
     )
   })
+}
+
+function isTentativeOrRecentPersonalMemory(candidate: PendingMemory): boolean {
+  if (candidate.userConfirmed === true) {
+    return false
+  }
+  if (candidate.domain !== 'personal' && candidate.domain !== 'relationship') {
+    return false
+  }
+  if (candidate.type !== 'user_preference' && candidate.type !== 'interaction_style' && candidate.type !== 'relationship_boundary') {
+    return false
+  }
+
+  return /最近|好像|可能|暂时|似乎|感觉|不确定|\blately\b|\brecently\b|\bmaybe\b|\bmight\b|\bseems?\b|\bfor now\b|\btentative\b|\btemporar(?:y|ily)\b/i.test(
+    evidenceText(candidate)
+  )
+}
+
+function isMemoryRecallQuestion(candidate: PendingMemory): boolean {
+  if (candidate.userConfirmed === true || hasDirectMemoryInstruction(candidate)) {
+    return false
+  }
+
+  return /你应该怎么|你会怎么|应该如何|会如何|还记得|记得.*吗|how should you|how would you|what should you|do you remember/i.test(
+    evidenceText(candidate)
+  )
+}
+
+function hasDirectMemoryInstruction(candidate: PendingMemory): boolean {
+  return /记住|请记住|以后默认|之后默认|以后你要|以后请|remember that|please remember|from now on|default to/i.test(
+    evidenceText(candidate)
+  )
+}
+
+function evidenceText(candidate: PendingMemory): string {
+  return candidate.evidence.map((entry) => `${entry.summary ?? ''} ${entry.quote ?? ''}`).join(' ')
 }
 
 function reject(candidate: PendingMemory, now: string, reason: string): MemoryDecision {

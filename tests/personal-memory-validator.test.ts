@@ -84,6 +84,44 @@ describe('personal memory validator and lifecycle', () => {
     expect(decision.action).toBe('pending')
   })
 
+  it('keeps tentative or recent personal preferences pending', () => {
+    const decision = validateMemoryCandidate({
+      candidate: createCandidate({
+        domain: 'personal',
+        type: 'user_preference',
+        strength: 'hard',
+        scope: 'global',
+        source: 'user_explicit',
+        content: 'User prefers the assistant to first give a clear direction before expanding.',
+        evidenceSummary: "User said: '我最近好像更喜欢你先给一个明确方向，不要一上来展开太多概念。'"
+      }),
+      existingMemories: [],
+      tombstones: [],
+      now: '2026-05-23T00:00:00.000Z'
+    })
+
+    expect(decision.action).toBe('pending')
+    expect(decision.action === 'pending' ? decision.candidate.strength : undefined).toBe('soft')
+  })
+
+  it('keeps memory recall questions pending instead of creating duplicate rules', () => {
+    const decision = validateMemoryCandidate({
+      candidate: createCandidate({
+        domain: 'procedural',
+        type: 'procedural_rule',
+        strength: 'hard',
+        source: 'user_explicit',
+        content: 'When user asks about architecture plans, organize the answer as conclusion, risks, then execution steps.',
+        evidenceSummary: "User asked: '我之后问架构方案时，你应该怎么组织回答？'"
+      }),
+      existingMemories: [],
+      tombstones: [],
+      now: '2026-05-23T00:00:00.000Z'
+    })
+
+    expect(decision.action).toBe('pending')
+  })
+
   it('rejects affective diagnostic claims', () => {
     const decision = validateMemoryCandidate({
       candidate: createCandidate({
