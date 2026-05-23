@@ -66,6 +66,14 @@ describe('startWebServer', () => {
     expect(body).toContain('id="inspectorEdgeToggle"')
     expect(body).toContain('id="contextUsageButton"')
     expect(body).toContain('id="contextUsageValue"')
+    expect(body).toContain('id="thinkModeControl"')
+    expect(body).toContain('id="thinkModeButton"')
+    expect(body).toContain('id="thinkModeMenu"')
+    expect(body).toContain('aria-haspopup="menu"')
+    expect(body).toContain('role="menuitemradio"')
+    expect(body).toContain('data-thinking-mode="auto"')
+    expect(body).toContain('data-thinking-mode="on"')
+    expect(body).toContain('data-thinking-mode="off"')
     expect(body).toContain('<button id="themeToggle" class="theme-toggle icon-button icon-only" type="button" aria-label="Switch to dark mode" title="Switch to dark mode"></button>')
     expect(body.indexOf('id="themeToggle"')).toBeLessThan(body.indexOf('id="inspectorEdgeToggle"'))
     expect(body).toContain('class="chat-actions"')
@@ -75,9 +83,11 @@ describe('startWebServer', () => {
     expect(body).toContain('src="/static/assets/cyrene-cartoon-avatar.png"')
     expect(body).toContain('decoding="async"')
     expect(body).toContain('rows="1"')
+    expect(body).toContain('aria-label="Message"')
     expect(body).toContain('<h1>Cyrene</h1>')
     expect(body).toContain('<h2>Untitled session</h2>')
     expect(body).toContain('<h2>Details</h2>')
+    expect(body).not.toContain('Ask about this workspace or start a local agent run')
     expect(body).not.toContain('rows="3"')
     expect(body).not.toContain('Run details')
     expect(body).not.toContain('src="/static/assets/cyrene-realistic-avatar.png"')
@@ -129,6 +139,11 @@ describe('startWebServer', () => {
     expect(body).toContain('.context-usage-button')
     expect(body).toContain('.context-usage-ring')
     expect(body).toContain('.context-usage-button.show-value')
+    expect(body).toContain('.think-mode-control')
+    expect(body).toContain('.think-mode-button')
+    expect(body).toContain('.think-mode-menu')
+    expect(body).toContain('.think-mode-menu[hidden]')
+    expect(body).toContain('.think-mode-option.is-active')
     expect(body).toContain('conic-gradient')
     expect(body).toContain('.context-panel')
     expect(body).toContain('.markdown-file-select')
@@ -147,6 +162,9 @@ describe('startWebServer', () => {
     expect(body).toContain('.avatar-cartoon')
     expect(body).toContain('.message-group.assistant')
     expect(body).toContain('.message-content')
+    expect(body).toMatch(/\.session-row \{[\s\S]*min-height: 40px/)
+    expect(body).toMatch(/\.session-title-button \{[\s\S]*display: flex/)
+    expect(body).toMatch(/\.session-title-button \{[\s\S]*align-items: center/)
     expect(body).toContain('object-fit: cover')
     expect(body).toMatch(/\.brand-avatar \{[\s\S]*background: rgba\(255, 255, 255, 0\.72\)/)
     expect(body).toMatch(/\.assistant-avatar \{[\s\S]*background: rgba\(255, 255, 255, 0\.76\)/)
@@ -176,6 +194,12 @@ describe('startWebServer', () => {
     expect(body).not.toContain('.sidebar-card')
     expect(body).not.toContain('.brand-avatar::after')
     expect(body).not.toContain('.avatar-cartoon::after')
+    expect(body).not.toContain('.activity-status')
+    expect(body).not.toContain('.thinking-orb')
+    expect(body).not.toContain('.thinking-core')
+    expect(body).not.toContain('.thought-particle')
+    expect(body).not.toContain('@keyframes orbBreath')
+    expect(body).not.toContain('@keyframes thoughtOrbit')
     expect(body).not.toContain('radial-gradient(circle at 52% 31%')
     expect(body).not.toContain('radial-gradient(circle at 50% 34%')
   })
@@ -317,6 +341,28 @@ describe('startWebServer', () => {
     expect(actualBytes).toEqual(await readFile(assetPath))
   })
 
+  it('serves a workspace JPEG asset from a child workspace', async () => {
+    const cwd = await createTempCwd()
+    await mkdir(join(cwd, 'workspace', 'project-a', 'images'), { recursive: true })
+    const expectedBytes = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10])
+    const assetPath = join(cwd, 'workspace', 'project-a', 'images', 'meme.jpeg')
+    await writeFile(assetPath, expectedBytes)
+    const server = await startWebServer({
+      cwd,
+      host: '127.0.0.1',
+      port: 0,
+      callModel: async (): Promise<ModelResponse> => ({ content: 'unused', toolCalls: [] })
+    })
+    servers.push(server)
+
+    const response = await fetch(`${server.url}/api/workspaces/project-a/files/images/meme.jpeg`)
+    const actualBytes = Buffer.from(await response.arrayBuffer())
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toContain('image/jpeg')
+    expect(actualBytes).toEqual(await readFile(assetPath))
+  })
+
   it('rejects workspace PNG asset path traversal', async () => {
     const cwd = await createTempCwd()
     await writeFile(join(cwd, 'secret.png'), 'not for preview')
@@ -334,7 +380,7 @@ describe('startWebServer', () => {
     await expect(response.json()).resolves.toEqual({ error: 'Invalid workspace asset path.' })
   })
 
-  it('rejects non-PNG workspace assets', async () => {
+  it('rejects non-image workspace assets', async () => {
     const cwd = await createTempCwd()
     await writeFile(join(cwd, 'workspace', 'notes.txt'), 'not an image')
     const server = await startWebServer({
@@ -348,7 +394,7 @@ describe('startWebServer', () => {
     const response = await fetch(`${server.url}/api/workspaces/@root/files/notes.txt`)
 
     expect(response.status).toBe(400)
-    await expect(response.json()).resolves.toEqual({ error: 'Workspace asset must be a PNG file.' })
+    await expect(response.json()).resolves.toEqual({ error: 'Workspace asset must be a supported image file.' })
   })
 
   it('returns 404 for missing workspace PNG assets', async () => {
@@ -400,7 +446,7 @@ describe('startWebServer', () => {
     expect(body).toContain('autoResizePromptInput')
     expect(body).toContain('promptInput.style.height = \'42px\'')
     expect(body).toContain('Math.min(promptInput.scrollHeight, 150)')
-    expect(body).toContain('updateRunStatus(\'Thinking...\')')
+    expect(body).toContain('updateRunStatus(formatThinkingStatus')
     expect(body).toContain('appendAssistantMessage')
     expect(body).toContain('loadSessions')
     expect(body).toContain('/api/sessions')
@@ -435,14 +481,32 @@ describe('startWebServer', () => {
     expect(body).toContain('formatWorkspaceDisplayName')
     expect(body).toContain('workspaceChangeButton.textContent =')
     expect(body).toContain('loadMarkdownFiles')
+    expect(body).toContain('shouldRefreshMarkdownForToolResult')
+    expect(body).toContain('refreshMarkdownContext')
+    expect(body).toContain('preferredMarkdownId')
     expect(body).toContain('renderMarkdownPreview')
     expect(body).toContain("state.selectedMarkdownContent = ''\n  renderInspector()")
     expect(body).toContain('app-helpers.js')
     expect(body).toContain('renderMarkdownHtml')
     expect(body).toContain('ownsMarkdownFileResponse')
     expect(body).toContain('contextUsagePercent')
+    expect(body).toContain('contextUsageLabel')
     expect(body).toContain('contextUsageButton')
+    expect(body).toContain('thinkModeControl')
+    expect(body).toContain('thinkingMode: DEFAULT_MODEL_CONTEXT.thinkingMode')
+    expect(body).toContain('thinkModeButton')
+    expect(body).toContain('thinkModeMenu')
+    expect(body).toContain('thinkingModeOptions')
+    expect(body).toContain('renderThinkingModeControl')
+    expect(body).toContain('toggleThinkingModeMenu')
+    expect(body).toContain('closeThinkingModeMenu')
+    expect(body).toContain('thinkingModeButtonLabel')
+    expect(body).toContain('cycleThinkingMode')
+    expect(body).toContain("event.key.toLowerCase() === 't'")
     expect(body).toContain('updateContextUsageIndicator')
+    expect(body).toContain('modelContext')
+    expect(body).toContain('formatThinkingStatus')
+    expect(body).toContain("return 'Thinking...'")
     expect(body).toContain("classList.toggle('show-value'")
     expect(body).toContain('session-history')
     expect(body).toContain('message-group assistant')
@@ -455,6 +519,11 @@ describe('startWebServer', () => {
     expect(body).toContain('Cyrene')
     expect(body).not.toContain("preview.className = 'session-preview'")
     expect(body).not.toContain('Ask Prism')
+    expect(body).not.toContain('showActivityStatus')
+    expect(body).not.toContain('clearActivityStatus')
+    expect(body).not.toContain('thinking-orb')
+    expect(body).not.toContain('thought-particle')
+    expect(body).not.toContain("classList.toggle('thinking-active'")
   })
 
   it('serves Web UI helper code from GET /static/app-helpers.js', async () => {
@@ -470,6 +539,7 @@ describe('startWebServer', () => {
     expect(body).toContain('ownsMarkdownFilesResponse')
     expect(body).toContain('buildRunRequestBody')
     expect(body).toContain('contextUsagePercent')
+    expect(body).toContain('contextUsageLabel')
     expect(body).toContain('estimateContextTokens')
   })
 
@@ -528,6 +598,86 @@ describe('startWebServer', () => {
     expect(callModel).toHaveBeenCalledWith(expect.objectContaining({
       messages: expect.arrayContaining([{ role: 'user', content: 'hello web' }])
     } satisfies Partial<CallModelInput>))
+  })
+
+  it('returns model context for run creation and thinking events', async () => {
+    vi.stubEnv('CYRENE_BASE_URL', 'https://api.deepseek.com')
+    vi.stubEnv('CYRENE_MODEL', 'deepseek-v4-pro')
+    vi.stubEnv('CYRENE_STRONG_MODEL', 'deepseek-v4-pro')
+    vi.stubEnv('CYRENE_CHEAP_MODEL', 'deepseek-v4-flash')
+    vi.stubEnv('CYRENE_THINKING_MODE', 'auto')
+    const callModel = vi.fn(async (_input: CallModelInput): Promise<ModelResponse> => ({ content: 'web answer', toolCalls: [] }))
+    const server = await startServer(callModel)
+
+    const createResponse = await fetch(`${server.url}/api/runs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ message: 'hello web' })
+    })
+    const createBody = (await createResponse.json()) as {
+      runId: string
+      sessionId: string
+      modelContext: unknown
+    }
+
+    expect(createResponse.status).toBe(202)
+    expect(createBody.modelContext).toEqual({
+      provider: 'deepseek',
+      model: 'deepseek-v4-pro',
+      thinkingMode: 'auto',
+      contextWindowTokens: 1_048_576
+    })
+
+    const { body: streamBody } = await readRunEventStream(`${server.url}/api/runs/${createBody.runId}/events`)
+    expect(streamBody).toContain('"type":"thinking_start"')
+    expect(streamBody).toContain('"model":"deepseek-v4-pro"')
+    expect(streamBody).toContain('"contextWindowTokens":1048576')
+  })
+
+  it('applies the selected Web thinking mode to the run config', async () => {
+    vi.stubEnv('CYRENE_BASE_URL', 'https://api.deepseek.com')
+    vi.stubEnv('CYRENE_MODEL', 'deepseek-v4-pro')
+    vi.stubEnv('CYRENE_STRONG_MODEL', 'deepseek-v4-pro')
+    vi.stubEnv('CYRENE_CHEAP_MODEL', 'deepseek-v4-flash')
+    vi.stubEnv('CYRENE_THINKING_MODE', 'auto')
+    const callModel = vi.fn(async (_input: CallModelInput): Promise<ModelResponse> => ({ content: 'web answer', toolCalls: [] }))
+    const server = await startServer(callModel)
+
+    const createResponse = await fetch(`${server.url}/api/runs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ message: 'hello web', thinkingMode: 'off' })
+    })
+    const createBody = (await createResponse.json()) as {
+      runId: string
+      modelContext: { thinkingMode: string }
+    }
+
+    expect(createResponse.status).toBe(202)
+    expect(createBody.modelContext.thinkingMode).toBe('off')
+
+    const { body: streamBody } = await readRunEventStream(`${server.url}/api/runs/${createBody.runId}/events`)
+    expect(streamBody).toContain('"thinkingMode":"off"')
+    expect(callModel).toHaveBeenCalledWith(expect.objectContaining({
+      config: expect.objectContaining({
+        model: expect.objectContaining({ thinkingMode: 'off' })
+      })
+    } satisfies Partial<CallModelInput>))
+  })
+
+  it('rejects invalid Web thinking mode values', async () => {
+    const callModel = vi.fn(async (): Promise<ModelResponse> => ({ content: 'unused', toolCalls: [] }))
+    const server = await startServer(callModel)
+
+    const response = await fetch(`${server.url}/api/runs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ message: 'hello web', thinkingMode: 'enabled' })
+    })
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({ error: 'thinkingMode must be auto, on, or off.' })
+    expect(callModel).not.toHaveBeenCalled()
   })
 
   it('delegates daily compaction after successful runs', async () => {

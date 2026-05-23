@@ -5,15 +5,21 @@ describe('createWebObserver', () => {
   it('emits browser-friendly run events in observer callback order', () => {
     const events: WebRunEvent[] = []
     const observer = createWebObserver((event) => events.push(event))
+    const modelContext = {
+      provider: 'deepseek' as const,
+      model: 'deepseek-v4-pro',
+      thinkingMode: 'auto' as const,
+      contextWindowTokens: 1_048_576
+    }
 
-    observer.onThinkingStart()
+    observer.onThinkingStart(modelContext)
     observer.onThinkingStop(125)
     observer.onToolCallStart('glob', 'src/**/*.ts')
     observer.onToolCallResult('glob', true, 42, 'src/**/*.ts')
     observer.onResponse('final answer')
 
     expect(events).toEqual([
-      { type: 'thinking_start' },
+      { type: 'thinking_start', modelContext },
       { type: 'thinking_stop', durationMs: 125 },
       { type: 'tool_start', name: 'glob', summary: 'src/**/*.ts' },
       { type: 'tool_result', name: 'glob', ok: true, durationMs: 42, summary: 'src/**/*.ts' },

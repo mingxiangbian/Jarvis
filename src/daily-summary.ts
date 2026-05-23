@@ -153,7 +153,8 @@ export async function maybeAppendDailySummary(input: MaybeAppendDailySummaryInpu
     const response = await input.callModel({
       config: input.config,
       messages: [{ role: 'user', content: buildDailySummaryPrompt(input) }],
-      tools: []
+      tools: [],
+      useCase: 'memory_extraction'
     })
     parsed = parseDailySummaryResponse(response.content)
   } catch {

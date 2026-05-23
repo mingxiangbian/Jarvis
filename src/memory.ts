@@ -475,7 +475,8 @@ export async function compactMemories(input: CompactMemoriesInput): Promise<Comp
   const response = await input.callModel({
     config: input.config,
     messages: [{ role: 'user', content: buildMemoryCompactionPrompt(input.dailyContent) }],
-    tools: []
+    tools: [],
+    useCase: 'memory_extraction'
   })
 
   let entries: CompactedMemoryEntry[]

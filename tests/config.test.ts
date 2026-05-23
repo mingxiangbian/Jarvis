@@ -29,6 +29,10 @@ describe('createDefaultConfig', () => {
     expect(config.model.model).toBe('strong-model')
     expect(config.model.apiKey).toBe('secret-key')
     expect(config.model.temperature).toBe(0)
+    expect(config.model.provider).toBe('openai-compatible')
+    expect(config.model.strongModel).toBe('strong-model')
+    expect(config.model.cheapModel).toBe('strong-model')
+    expect(config.model.thinkingMode).toBe('auto')
   })
 
   it('loads model configuration from project .env', async () => {
@@ -38,7 +42,10 @@ describe('createDefaultConfig', () => {
       [
         'CYRENE_BASE_URL=http://127.0.0.1:8080/v1',
         'CYRENE_MODEL=Qwen3.5-9B-MLX-4bit',
-        'CYRENE_API_KEY=local-secret'
+        'CYRENE_API_KEY=local-secret',
+        'CYRENE_STRONG_MODEL=deepseek-v4-pro',
+        'CYRENE_CHEAP_MODEL=deepseek-v4-flash',
+        'CYRENE_THINKING_MODE=off'
       ].join('\n')
     )
 
@@ -47,6 +54,27 @@ describe('createDefaultConfig', () => {
     expect(config.model.baseUrl).toBe('http://127.0.0.1:8080/v1')
     expect(config.model.model).toBe('Qwen3.5-9B-MLX-4bit')
     expect(config.model.apiKey).toBe('local-secret')
+    expect(config.model.strongModel).toBe('deepseek-v4-pro')
+    expect(config.model.cheapModel).toBe('deepseek-v4-flash')
+    expect(config.model.thinkingMode).toBe('off')
+  })
+
+  it('falls back to the primary model when optional route models are blank', async () => {
+    const root = await createTempDir()
+    await writeFile(
+      join(root, '.env'),
+      [
+        'CYRENE_BASE_URL=https://api.example.com/v1',
+        'CYRENE_MODEL=primary-model',
+        'CYRENE_STRONG_MODEL=',
+        'CYRENE_CHEAP_MODEL='
+      ].join('\n')
+    )
+
+    const config = createDefaultConfig(root)
+
+    expect(config.model.strongModel).toBe('primary-model')
+    expect(config.model.cheapModel).toBe('primary-model')
   })
 
   it('lets environment variables override project .env values', async () => {
@@ -90,6 +118,33 @@ describe('createDefaultConfig', () => {
     expect(config.model.baseUrl).toBe('')
     expect(config.model.model).toBe('')
     expect(config.model.apiKey).toBeUndefined()
+    expect(config.model.provider).toBe('openai-compatible')
+    expect(config.model.strongModel).toBe('')
+    expect(config.model.cheapModel).toBe('')
+    expect(config.model.thinkingMode).toBe('auto')
+  })
+
+  it('uses DeepSeek routing environment overrides', () => {
+    vi.stubEnv('CYRENE_BASE_URL', 'https://api.deepseek.com')
+    vi.stubEnv('CYRENE_MODEL', 'deepseek-v4-pro')
+    vi.stubEnv('CYRENE_STRONG_MODEL', 'deepseek-v4-pro')
+    vi.stubEnv('CYRENE_CHEAP_MODEL', 'deepseek-v4-flash')
+    vi.stubEnv('CYRENE_THINKING_MODE', 'on')
+
+    const config = createDefaultConfig('/tmp/project')
+
+    expect(config.model.provider).toBe('deepseek')
+    expect(config.model.strongModel).toBe('deepseek-v4-pro')
+    expect(config.model.cheapModel).toBe('deepseek-v4-flash')
+    expect(config.model.thinkingMode).toBe('on')
+  })
+
+  it('falls back to auto thinking mode for invalid values', () => {
+    vi.stubEnv('CYRENE_THINKING_MODE', 'sometimes')
+
+    const config = createDefaultConfig('/tmp/project')
+
+    expect(config.model.thinkingMode).toBe('auto')
   })
 
   it('uses startup-time manual feature flag defaults', () => {

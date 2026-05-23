@@ -143,14 +143,14 @@ describe('runAgentLoop', () => {
         content: `recent request ${index + 1}`
       }))
     ]
-    const calls: Array<{ configTemperature: number; messages: ChatMessage[]; tools: unknown[] }> = []
+    const calls: Array<{ configTemperature: number; messages: ChatMessage[]; tools: unknown[]; useCase: string | undefined }> = []
 
     const result = await runAgentLoop({
       config,
       messages,
       tools: [echoTool],
-      callModel: async ({ config: modelConfig, messages: modelMessages, tools }): Promise<ModelResponse> => {
-        calls.push({ configTemperature: modelConfig.model.temperature, messages: [...modelMessages], tools })
+      callModel: async ({ config: modelConfig, messages: modelMessages, tools, useCase }): Promise<ModelResponse> => {
+        calls.push({ configTemperature: modelConfig.model.temperature, messages: [...modelMessages], tools, useCase })
         if (calls.length === 1) {
           expect(tools).toEqual([])
           expect(modelMessages).toEqual([
@@ -169,13 +169,51 @@ describe('runAgentLoop', () => {
     expect(result.finalText).toBe('final answer after compact')
     expect(calls).toHaveLength(2)
     expect(calls[0]?.configTemperature).toBe(0)
+    expect(calls[0]?.useCase).toBe('summarization')
     expect(calls[1]?.configTemperature).toBe(0.8)
+    expect(calls[1]?.useCase).toBe('chat')
     expect(config.model.temperature).toBe(0.8)
     expect(calls[1]?.tools).toEqual(toolDefinitionsShape([echoTool.name]))
     expect(messages[1]).toEqual({
       role: 'user',
       content: expect.stringContaining('summary of older context')
     })
+  })
+
+  it('uses the interactive route context window before compacting', async () => {
+    const config = createDefaultConfig('/tmp/project')
+    config.contextWindowTokens = 10
+    config.autoCompactThreshold = 0.5
+    config.model.baseUrl = 'https://api.deepseek.com'
+    config.model.provider = 'deepseek'
+    config.model.model = 'deepseek-v4-pro'
+    config.model.strongModel = 'deepseek-v4-pro'
+    config.model.cheapModel = 'deepseek-v4-flash'
+    const messages: ChatMessage[] = [
+      { role: 'system', content: 'system' },
+      { role: 'user', content: 'old request with enough text to exceed the tiny fallback threshold' },
+      { role: 'assistant', content: 'old response' },
+      { role: 'user', content: 'latest request' }
+    ]
+    const calls: Array<{ tools: unknown[]; useCase: string | undefined }> = []
+
+    const result = await runAgentLoop({
+      config,
+      messages,
+      tools: [echoTool],
+      callModel: async ({ tools, useCase }): Promise<ModelResponse> => {
+        calls.push({ tools, useCase })
+        return { content: 'final without compacting on the fallback window', toolCalls: [] }
+      }
+    })
+
+    expect(result.finalText).toBe('final without compacting on the fallback window')
+    expect(calls).toEqual([
+      {
+        tools: toolDefinitionsShape([echoTool.name]),
+        useCase: 'chat'
+      }
+    ])
   })
 
   it('auto-compacts again after tool output changes history', async () => {
@@ -529,6 +567,59 @@ describe('runAgentLoop', () => {
     expect(summaryInputs).toEqual([{ userPrompt: 'echo', finalText: 'done after tool' }])
   })
 
+  it('preserves provider metadata on assistant tool-call messages', async () => {
+    let calls = 0
+    const messages: ChatMessage[] = [
+      { role: 'system', content: 'system' },
+      { role: 'user', content: 'echo' }
+    ]
+    const providerMetadata = {
+      provider: 'deepseek' as const,
+      model: 'deepseek-v4-pro',
+      thinking: {
+        enabled: true,
+        mode: 'auto' as const,
+        reasoningContent: 'Use a tool before answering.'
+      }
+    }
+
+    await runAgentLoop({
+      config: createDefaultConfig('/tmp/project'),
+      messages,
+      tools: [echoTool],
+      callModel: async (): Promise<ModelResponse> => {
+        calls += 1
+        if (calls === 1) {
+          return {
+            content: '',
+            toolCalls: [
+              {
+                id: 'call-1',
+                type: 'function',
+                function: { name: 'echo', arguments: '{"text":"tool output"}' }
+              }
+            ],
+            providerMetadata
+          }
+        }
+        return { content: 'done after tool', toolCalls: [] }
+      }
+    })
+
+    expect(messages[2]).toEqual({
+      role: 'assistant',
+      content: '',
+      tool_calls: [
+        {
+          id: 'call-1',
+          type: 'function',
+          function: { name: 'echo', arguments: '{"text":"tool output"}' }
+        }
+      ],
+      providerMetadata
+    })
+  })
+
   it('emits observer lifecycle events around model calls, tool calls, and final response', async () => {
     const events: string[] = []
     let calls = 0
@@ -787,10 +878,13 @@ describe('runAgentLoop', () => {
   it('asks the model for a final answer when it returns blank text after tools', async () => {
     let calls = 0
     const seenMessages: ChatMessage[][] = []
+    const messages: ChatMessage[] = [
+      { role: 'system', content: 'system' },
+      { role: 'user', content: 'echo' }
+    ]
     const result = await runAgentLoop({
       config: createDefaultConfig('/tmp/project'),
-      systemPrompt: 'system',
-      userPrompt: 'echo',
+      messages,
       tools: [echoTool],
       callModel: async ({ messages }): Promise<ModelResponse> => {
         calls += 1
@@ -820,6 +914,23 @@ describe('runAgentLoop', () => {
       role: 'user',
       content: 'Your previous response was empty. Provide a clear final answer using the tool results above, or call another tool if needed.'
     })
+    expect(messages).toEqual([
+      { role: 'system', content: 'system' },
+      { role: 'user', content: 'echo' },
+      {
+        role: 'assistant',
+        content: '',
+        tool_calls: [
+          {
+            id: 'call-1',
+            type: 'function',
+            function: { name: 'echo', arguments: '{"text":"tool output"}' }
+          }
+        ]
+      },
+      { role: 'tool', tool_call_id: 'call-1', content: 'tool output' },
+      { role: 'assistant', content: 'final after retry' }
+    ])
   })
 
   it('allows another blank final retry after new tool results', async () => {

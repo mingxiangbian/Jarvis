@@ -1,5 +1,5 @@
 import { lstat, readdir, readFile, realpath } from 'node:fs/promises'
-import { basename, isAbsolute, relative, resolve } from 'node:path'
+import { basename, extname, isAbsolute, relative, resolve } from 'node:path'
 
 export interface WorkspaceInfo {
   id: string
@@ -26,8 +26,16 @@ export interface MarkdownFileContent {
 
 export interface WorkspaceAsset {
   path: string
-  contentType: 'image/png'
+  contentType: string
 }
+
+const SUPPORTED_WORKSPACE_IMAGE_TYPES = new Map([
+  ['.gif', 'image/gif'],
+  ['.jpeg', 'image/jpeg'],
+  ['.jpg', 'image/jpeg'],
+  ['.png', 'image/png'],
+  ['.webp', 'image/webp']
+])
 
 function publicWorkspace(workspace: WorkspaceInfo): PublicWorkspaceInfo {
   return {
@@ -79,8 +87,8 @@ function validateWorkspaceAssetPath(assetPath: string): string {
     throw new Error('Invalid workspace asset path.')
   }
 
-  if (!assetPath.toLowerCase().endsWith('.png')) {
-    throw new Error('Workspace asset must be a PNG file.')
+  if (!SUPPORTED_WORKSPACE_IMAGE_TYPES.has(extname(assetPath).toLowerCase())) {
+    throw new Error('Workspace asset must be a supported image file.')
   }
 
   return assetPath
@@ -229,6 +237,6 @@ export async function resolveWorkspaceAsset(workspace: WorkspaceInfo, assetPath:
 
   return {
     path: canonicalFile,
-    contentType: 'image/png'
+    contentType: SUPPORTED_WORKSPACE_IMAGE_TYPES.get(extname(safeAssetPath).toLowerCase()) ?? 'application/octet-stream'
   }
 }

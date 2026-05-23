@@ -73,6 +73,7 @@ describe('daily summary filtering', () => {
 
     expect(result).toBe(true)
     expect(callModel).toHaveBeenCalledTimes(1)
+    expect(callModel.mock.calls[0]?.[0].useCase).toBe('memory_extraction')
     await expect(readFile(join(root, '.cyrene', 'memory', 'daily.md'), 'utf8')).resolves.toBe(
       '[2026-05-21 00:30] User prefers daily memory to store content summaries instead of tool-call logs.\n'
     )

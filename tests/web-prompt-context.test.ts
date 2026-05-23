@@ -17,6 +17,11 @@ afterEach(async () => {
 
 describe('buildAgentRuntime', () => {
   it('builds shared config, system prompt, and core tools for an agent runtime', async () => {
+    vi.stubEnv('CYRENE_BASE_URL', 'https://api.deepseek.com')
+    vi.stubEnv('CYRENE_MODEL', 'deepseek-v4-pro')
+    vi.stubEnv('CYRENE_STRONG_MODEL', 'deepseek-v4-pro')
+    vi.stubEnv('CYRENE_CHEAP_MODEL', 'deepseek-v4-flash')
+    vi.stubEnv('CYRENE_THINKING_MODE', 'off')
     const home = await mkdtemp(join(tmpdir(), 'cyrene-web-home-'))
     tempHomes.push(home)
     process.env.HOME = home
@@ -43,9 +48,21 @@ describe('buildAgentRuntime', () => {
 
     expect(runtime.config.cwd).toBe(resolve(root))
     expect(runtime.config.writableRoots).toEqual([resolve(root)])
+    expect(runtime.systemPrompt).toContain('You are Cyrene, a local API-first coding agent.')
+    expect(runtime.systemPrompt).not.toContain('Claude Code-style')
+    expect(runtime.systemPrompt).not.toContain('Anthropic')
+    expect(runtime.systemPrompt).not.toContain('model router')
+    expect(runtime.systemPrompt).not.toContain('When the user asks which model or provider is active')
 
     const expectedOrder = [
       '# currentDate\nToday\'s date is 2026-05-21.',
+      [
+        '## Active Model Route',
+        'Provider: deepseek',
+        'Chat model: deepseek-v4-pro',
+        'Thinking mode: off',
+        'Context window: 1048576 tokens'
+      ].join('\n'),
       '## Global Persona\n\nBe direct.',
       '## Global Rule\n\nGlobal rule.',
       '## Rule:',

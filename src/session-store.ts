@@ -2,6 +2,7 @@ import { appendFile, lstat, mkdir, readFile, realpath, rename, rm, writeFile } f
 import { join, resolve, sep } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type { ChatMessage } from './llm-client.js'
+import type { NormalizedUsage, ProviderMetadata, ThinkingMode } from './models/types.js'
 
 export type SessionMode = 'web' | 'repl'
 
@@ -232,7 +233,8 @@ function parseEventLine(line: string): SessionEvent | null {
       if (
         (role === 'user' || role === 'assistant' || role === 'tool') &&
         typeof content === 'string' &&
-        isValidToolCallMetadata(parsed.message)
+        isValidToolCallMetadata(parsed.message) &&
+        isValidProviderMetadata(parsed.message.providerMetadata)
       ) {
         return {
           type: 'message',
@@ -278,6 +280,91 @@ function copyModelMessage(message: ChatMessage): ChatMessage {
             type: toolCall.type,
             function: { ...toolCall.function }
           }))
+        }),
+    ...(message.providerMetadata === undefined
+      ? {}
+      : { providerMetadata: copyProviderMetadata(message.providerMetadata) })
+  }
+}
+
+function isValidProviderMetadata(metadata: unknown): metadata is ProviderMetadata | undefined {
+  if (metadata === undefined) {
+    return true
+  }
+  if (!isObject(metadata)) {
+    return false
+  }
+  if (metadata.provider !== 'deepseek' && metadata.provider !== 'openai-compatible') {
+    return false
+  }
+  if (typeof metadata.model !== 'string') {
+    return false
+  }
+  if (metadata.thinking !== undefined && !isValidThinkingMetadata(metadata.thinking)) {
+    return false
+  }
+  return metadata.usage === undefined || isValidUsageMetadata(metadata.usage)
+}
+
+function isValidThinkingMetadata(thinking: unknown): thinking is ProviderMetadata['thinking'] {
+  if (!isObject(thinking)) {
+    return false
+  }
+  return typeof thinking.enabled === 'boolean' &&
+    isThinkingMode(thinking.mode) &&
+    (thinking.reasoningContent === undefined || typeof thinking.reasoningContent === 'string')
+}
+
+function isThinkingMode(value: unknown): value is ThinkingMode {
+  return value === 'auto' || value === 'on' || value === 'off'
+}
+
+function isValidUsageMetadata(usage: unknown): usage is NormalizedUsage {
+  if (!isObject(usage)) {
+    return false
+  }
+  return isOptionalNumber(usage.promptTokens) &&
+    isOptionalNumber(usage.completionTokens) &&
+    isOptionalNumber(usage.reasoningTokens) &&
+    isOptionalNumber(usage.cacheHitTokens) &&
+    isOptionalNumber(usage.cacheMissTokens)
+}
+
+function isOptionalNumber(value: unknown): boolean {
+  return value === undefined || (typeof value === 'number' && Number.isFinite(value))
+}
+
+function copyProviderMetadata(metadata: ProviderMetadata): ProviderMetadata {
+  return {
+    provider: metadata.provider,
+    model: metadata.model,
+    ...(metadata.thinking === undefined
+      ? {}
+      : {
+          thinking: {
+            enabled: metadata.thinking.enabled,
+            mode: metadata.thinking.mode,
+            ...(metadata.thinking.reasoningContent === undefined
+              ? {}
+              : { reasoningContent: metadata.thinking.reasoningContent })
+          }
+        }),
+    ...(metadata.usage === undefined
+      ? {}
+      : {
+          usage: {
+            ...(metadata.usage.promptTokens === undefined ? {} : { promptTokens: metadata.usage.promptTokens }),
+            ...(metadata.usage.completionTokens === undefined
+              ? {}
+              : { completionTokens: metadata.usage.completionTokens }),
+            ...(metadata.usage.reasoningTokens === undefined
+              ? {}
+              : { reasoningTokens: metadata.usage.reasoningTokens }),
+            ...(metadata.usage.cacheHitTokens === undefined ? {} : { cacheHitTokens: metadata.usage.cacheHitTokens }),
+            ...(metadata.usage.cacheMissTokens === undefined
+              ? {}
+              : { cacheMissTokens: metadata.usage.cacheMissTokens })
+          }
         })
   }
 }

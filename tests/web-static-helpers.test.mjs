@@ -3,13 +3,18 @@ import { describe, expect, it } from 'vitest'
 import {
   buildRunRequestBody,
   contextUsagePercent,
+  contextUsageLabel,
   encodedWorkspaceId,
   estimateContextTokens,
   escapeHtml,
+  isValidThinkingMode,
   isWorkspaceLockedState,
+  nextThinkingMode,
   ownsMarkdownFileResponse,
   ownsMarkdownFilesResponse,
-  renderMarkdownHtml
+  renderMarkdownHtml,
+  shouldRefreshMarkdownForToolResult,
+  thinkingModeButtonLabel
 } from '../src/web/static/app-helpers.js'
 
 describe('web static helpers', () => {
@@ -64,6 +69,17 @@ describe('web static helpers', () => {
     expect(html).toContain('<img')
     expect(html).toContain('alt="Portrait &lt;one&gt;"')
     expect(html).toContain('src="/api/workspaces/project-a/files/generated-images/portrait.png"')
+    expect(html).not.toContain('<one>')
+  })
+
+  it('renders safe full-line Markdown JPEG images with dot-relative paths', () => {
+    const html = renderMarkdownHtml('![Meme <one>](./images/meme.jpeg)', {
+      workspaceId: 'project-a'
+    })
+
+    expect(html).toContain('<img')
+    expect(html).toContain('alt="Meme &lt;one&gt;"')
+    expect(html).toContain('src="/api/workspaces/project-a/files/images/meme.jpeg"')
     expect(html).not.toContain('<one>')
   })
 
@@ -139,16 +155,44 @@ describe('web static helpers', () => {
   })
 
   it('builds run requests with the selected workspace and reports workspace lock state', () => {
-    expect(buildRunRequestBody({ sessionId: 's1', message: 'hello', workspaceId: 'project-a' })).toEqual({
+    expect(buildRunRequestBody({
       sessionId: 's1',
       message: 'hello',
-      workspaceId: 'project-a'
+      workspaceId: 'project-a',
+      thinkingMode: 'off'
+    })).toEqual({
+      sessionId: 's1',
+      message: 'hello',
+      workspaceId: 'project-a',
+      thinkingMode: 'off'
     })
+    expect(isValidThinkingMode('auto')).toBe(true)
+    expect(isValidThinkingMode('on')).toBe(true)
+    expect(isValidThinkingMode('off')).toBe(true)
+    expect(isValidThinkingMode('enabled')).toBe(false)
+    expect(nextThinkingMode('auto')).toBe('on')
+    expect(nextThinkingMode('on')).toBe('off')
+    expect(nextThinkingMode('off')).toBe('auto')
+    expect(nextThinkingMode('enabled')).toBe('auto')
+    expect(thinkingModeButtonLabel('auto')).toBe('Think: Auto')
+    expect(thinkingModeButtonLabel('on')).toBe('Think: On')
+    expect(thinkingModeButtonLabel('off')).toBe('Think: Off')
+    expect(thinkingModeButtonLabel('enabled')).toBe('Think: Auto')
     expect(encodedWorkspaceId('')).toBe('@root')
     expect(encodedWorkspaceId('project a')).toBe('project%20a')
     expect(isWorkspaceLockedState({ isSending: true, activeRun: null })).toBe(true)
     expect(isWorkspaceLockedState({ isSending: false, activeRun: {} })).toBe(true)
     expect(isWorkspaceLockedState({ isSending: false, activeRun: null })).toBe(false)
+  })
+
+  it('refreshes Markdown context after successful file mutations', () => {
+    expect(shouldRefreshMarkdownForToolResult({ type: 'tool_result', name: 'file_write', ok: true })).toBe(true)
+    expect(shouldRefreshMarkdownForToolResult({ type: 'tool_result', name: 'file_edit', ok: true })).toBe(true)
+    expect(shouldRefreshMarkdownForToolResult({ type: 'tool_result', name: 'file_delete', ok: true })).toBe(true)
+    expect(shouldRefreshMarkdownForToolResult({ type: 'tool_result', name: 'bash', ok: true, summary: 'rm notes.md' })).toBe(true)
+    expect(shouldRefreshMarkdownForToolResult({ type: 'tool_result', name: 'file_write', ok: false })).toBe(false)
+    expect(shouldRefreshMarkdownForToolResult({ type: 'tool_result', name: 'bash', ok: true, summary: 'npm test' })).toBe(false)
+    expect(shouldRefreshMarkdownForToolResult({ type: 'final', text: 'done' })).toBe(false)
   })
 
   it('estimates context usage from saved messages and the current draft', () => {
@@ -167,5 +211,12 @@ describe('web static helpers', () => {
       draft: '',
       contextWindowTokens: 100
     })).toBe(2)
+    expect(contextUsageLabel({
+      percent: 18,
+      modelContext: {
+        model: 'deepseek-v4-pro',
+        contextWindowTokens: 1_048_576
+      }
+    })).toBe('Context usage 18% of deepseek-v4-pro 1M')
   })
 })

@@ -78,7 +78,15 @@
         </section>
 
         <form id="composer" class="composer" aria-label="Send message">
-          <textarea id="promptInput" name="prompt" rows="1" placeholder="Ask about this workspace or start a local agent run"></textarea>
+          <textarea id="promptInput" name="prompt" rows="1" aria-label="Message"></textarea>
+          <div id="thinkModeControl" class="think-mode-control" aria-label="Think mode">
+            <button id="thinkModeButton" class="think-mode-button" type="button" aria-haspopup="menu" aria-expanded="false">Think: Auto</button>
+            <div id="thinkModeMenu" class="think-mode-menu" role="menu" hidden>
+              <button class="think-mode-option is-active" type="button" role="menuitemradio" data-thinking-mode="auto" aria-checked="true">Auto</button>
+              <button class="think-mode-option" type="button" role="menuitemradio" data-thinking-mode="on" aria-checked="false">On</button>
+              <button class="think-mode-option" type="button" role="menuitemradio" data-thinking-mode="off" aria-checked="false">Off</button>
+            </div>
+          </div>
           <button id="contextUsageButton" class="context-usage-button" type="button" aria-label="Context usage 0%" aria-pressed="false" title="Context usage 0%">
             <span class="context-usage-ring" aria-hidden="true">
               <span id="contextUsageValue" class="context-usage-value">0%</span>

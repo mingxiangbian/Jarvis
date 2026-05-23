@@ -1,11 +1,16 @@
 import {
   buildRunRequestBody,
+  contextUsageLabel,
   contextUsagePercent,
   encodedWorkspaceId,
+  isValidThinkingMode,
   isWorkspaceLockedState,
+  nextThinkingMode,
   ownsMarkdownFileResponse,
   ownsMarkdownFilesResponse,
-  renderMarkdownHtml
+  renderMarkdownHtml,
+  shouldRefreshMarkdownForToolResult,
+  thinkingModeButtonLabel
 } from './app-helpers.js'
 
 const appShell = document.querySelector('.app-shell')
@@ -15,6 +20,10 @@ const composer = document.querySelector('#composer')
 const promptInput = document.querySelector('#promptInput')
 const contextUsageButton = document.querySelector('#contextUsageButton')
 const contextUsageValue = document.querySelector('#contextUsageValue')
+const thinkModeControl = document.querySelector('#thinkModeControl')
+const thinkModeButton = document.querySelector('#thinkModeButton')
+const thinkModeMenu = document.querySelector('#thinkModeMenu')
+const thinkingModeOptions = Array.from(document.querySelectorAll('[data-thinking-mode]'))
 const sendButton = document.querySelector('#sendButton')
 const newChatButton = document.querySelector('#newChatButton')
 const railNewChatButton = document.querySelector('#railNewChatButton')
@@ -32,6 +41,12 @@ const workspaceChangeButton = document.querySelector('#workspaceChangeButton')
 const workspacePicker = document.querySelector('#workspacePicker')
 const tabs = Array.from(document.querySelectorAll('.tab'))
 const THEME_STORAGE_KEY = 'cyrene.theme'
+const DEFAULT_MODEL_CONTEXT = {
+  provider: 'openai-compatible',
+  model: 'current model',
+  thinkingMode: 'auto',
+  contextWindowTokens: 256_000
+}
 
 const state = {
   sessionId: null,
@@ -54,6 +69,8 @@ const state = {
   sidebarCollapsed: false,
   inspectorOpen: false,
   contextUsageDetailsVisible: false,
+  thinkingMode: DEFAULT_MODEL_CONTEXT.thinkingMode,
+  modelContext: DEFAULT_MODEL_CONTEXT,
   theme: readStoredTheme(),
   runStatus: 'Ready'
 }
@@ -66,6 +83,7 @@ const markdownRequests = {
 void loadWorkspaces()
 void loadSessions()
 setTheme(state.theme)
+renderThinkingModeControl()
 updateChatLayoutState()
 updateContextUsageIndicator()
 
@@ -85,6 +103,29 @@ contextUsageButton?.addEventListener('click', () => {
   state.contextUsageDetailsVisible = !state.contextUsageDetailsVisible
   updateContextUsageIndicator()
 })
+thinkModeControl?.addEventListener('click', (event) => {
+  event.stopPropagation()
+})
+thinkModeButton?.addEventListener('click', () => {
+  toggleThinkingModeMenu()
+})
+thinkModeMenu?.addEventListener('click', (event) => {
+  const button = event.target?.closest?.('button[data-thinking-mode]')
+  if (!button) {
+    return
+  }
+  setThinkingMode(button.dataset.thinkingMode)
+})
+document.addEventListener('keydown', (event) => {
+  if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === 't') {
+    event.preventDefault()
+    cycleThinkingMode()
+    return
+  }
+  if (event.key === 'Escape') {
+    closeThinkingModeMenu()
+  }
+})
 
 newChatButton?.addEventListener('click', resetChat)
 railNewChatButton?.addEventListener('click', resetChat)
@@ -98,9 +139,13 @@ themeToggle?.addEventListener('click', () => {
 })
 document.addEventListener('click', () => {
   closeSessionMenu()
+  closeThinkingModeMenu()
 })
 sessionHistory?.addEventListener('scroll', () => closeSessionMenu())
-window.addEventListener('resize', () => closeSessionMenu())
+window.addEventListener('resize', () => {
+  closeSessionMenu()
+  closeThinkingModeMenu()
+})
 workspaceChangeButton?.addEventListener('click', () => {
   if (isWorkspaceLocked()) {
     return
@@ -198,7 +243,8 @@ async function sendPrompt() {
       body: JSON.stringify(buildRunRequestBody({
         sessionId: state.sessionId,
         message: content,
-        workspaceId: state.workspaceId
+        workspaceId: state.workspaceId,
+        thinkingMode: state.thinkingMode
       }))
     })
   } catch (error) {
@@ -211,8 +257,9 @@ async function sendPrompt() {
     return
   }
 
-  const { runId, sessionId } = await response.json()
+  const { runId, sessionId, modelContext } = await response.json()
   state.sessionId = sessionId
+  updateModelContext(modelContext)
   renderSessionList()
   const stream = new EventSource(`/api/runs/${runId}/events`)
   state.activeRun = stream
@@ -238,7 +285,8 @@ async function sendPrompt() {
 function handleRunEvent(event, stream) {
   switch (event.type) {
     case 'thinking_start':
-      updateRunStatus('Thinking...')
+      updateModelContext(event.modelContext)
+      updateRunStatus(formatThinkingStatus(event.modelContext || state.modelContext))
       break
     case 'thinking_stop':
       updateRunStatus(`Thought for ${formatDuration(event.durationMs)}.`)
@@ -257,6 +305,9 @@ function handleRunEvent(event, stream) {
         summary: event.summary
       })
       renderInspector()
+      if (shouldRefreshMarkdownForToolResult(event)) {
+        void refreshMarkdownContext()
+      }
       updateRunStatus(`${event.name} ${event.ok ? 'completed' : 'failed'} in ${formatDuration(event.durationMs)}.`)
       break
     case 'final':
@@ -396,8 +447,11 @@ async function loadWorkspaces() {
   await loadMarkdownFiles()
 }
 
-async function loadMarkdownFiles() {
+async function loadMarkdownFiles(options = {}) {
   const requestWorkspaceId = state.workspaceId
+  const preferredMarkdownId = typeof options.preferredMarkdownId === 'string'
+    ? options.preferredMarkdownId
+    : state.selectedMarkdownId
   const requestToken = ++markdownRequests.files
   markdownRequests.file += 1
   state.markdownError = null
@@ -445,7 +499,9 @@ async function loadMarkdownFiles() {
     return
   }
   state.markdownFiles = Array.isArray(body.files) ? body.files : []
-  state.selectedMarkdownId = state.markdownFiles[0]?.id || ''
+  state.selectedMarkdownId = state.markdownFiles.some((file) => file.id === preferredMarkdownId)
+    ? preferredMarkdownId
+    : state.markdownFiles[0]?.id || ''
   if (state.selectedMarkdownId) {
     await loadMarkdownFile(state.selectedMarkdownId)
     return
@@ -508,6 +564,10 @@ async function loadMarkdownFile(fileId) {
   }
   state.selectedMarkdownContent = typeof body.file?.content === 'string' ? body.file.content : ''
   renderInspector()
+}
+
+function refreshMarkdownContext() {
+  void loadMarkdownFiles({ preferredMarkdownId: state.selectedMarkdownId })
 }
 
 function isWorkspaceLocked() {
@@ -879,6 +939,52 @@ function setTheme(nextTheme) {
   renderThemeToggle()
 }
 
+function setThinkingMode(nextMode) {
+  if (!isValidThinkingMode(nextMode) || isRunLocked()) {
+    return
+  }
+  state.thinkingMode = nextMode
+  closeThinkingModeMenu()
+  renderThinkingModeControl()
+}
+
+function cycleThinkingMode() {
+  setThinkingMode(nextThinkingMode(state.thinkingMode))
+}
+
+function toggleThinkingModeMenu() {
+  if (!thinkModeMenu || isRunLocked()) {
+    return
+  }
+  thinkModeMenu.hidden = !thinkModeMenu.hidden
+  renderThinkingModeControl()
+}
+
+function closeThinkingModeMenu() {
+  if (thinkModeMenu) {
+    thinkModeMenu.hidden = true
+  }
+  thinkModeButton?.setAttribute('aria-expanded', 'false')
+}
+
+function renderThinkingModeControl() {
+  const locked = isRunLocked()
+  if (thinkModeButton) {
+    thinkModeButton.textContent = thinkingModeButtonLabel(state.thinkingMode)
+    thinkModeButton.disabled = locked
+    thinkModeButton.setAttribute('aria-expanded', String(thinkModeMenu?.hidden === false))
+  }
+  if (locked) {
+    closeThinkingModeMenu()
+  }
+  for (const button of thinkingModeOptions) {
+    const isActive = button.dataset.thinkingMode === state.thinkingMode
+    button.classList.toggle('is-active', isActive)
+    button.setAttribute('aria-checked', String(isActive))
+    button.disabled = locked
+  }
+}
+
 function renderThemeToggle() {
   if (!themeToggle) {
     return
@@ -1055,6 +1161,7 @@ function setSending(isSending) {
   }
   appShell?.classList.toggle('run-active', isSending)
   updateChatLayoutState()
+  renderThinkingModeControl()
   renderSessionList()
   renderWorkspacePanel()
 }
@@ -1075,15 +1182,36 @@ function updateContextUsageIndicator() {
   }
   const percent = contextUsagePercent({
     messages: state.messages,
-    draft: promptInput?.value || ''
+    draft: promptInput?.value || '',
+    contextWindowTokens: state.modelContext?.contextWindowTokens || DEFAULT_MODEL_CONTEXT.contextWindowTokens
   })
-  const label = `Context usage ${percent}%`
+  const label = contextUsageLabel({ percent, modelContext: state.modelContext })
   contextUsageButton.style.setProperty('--context-usage', `${percent}%`)
   contextUsageButton.classList.toggle('show-value', state.contextUsageDetailsVisible)
   contextUsageButton.setAttribute('aria-label', label)
   contextUsageButton.setAttribute('aria-pressed', String(state.contextUsageDetailsVisible))
   contextUsageButton.setAttribute('title', label)
   contextUsageValue.textContent = `${percent}%`
+}
+
+function updateModelContext(modelContext) {
+  if (!modelContext || typeof modelContext !== 'object') {
+    return
+  }
+  const contextWindowTokens = Number(modelContext.contextWindowTokens)
+  state.modelContext = {
+    provider: typeof modelContext.provider === 'string' ? modelContext.provider : DEFAULT_MODEL_CONTEXT.provider,
+    model: typeof modelContext.model === 'string' && modelContext.model ? modelContext.model : DEFAULT_MODEL_CONTEXT.model,
+    thinkingMode: typeof modelContext.thinkingMode === 'string' ? modelContext.thinkingMode : DEFAULT_MODEL_CONTEXT.thinkingMode,
+    contextWindowTokens: Number.isFinite(contextWindowTokens) && contextWindowTokens > 0
+      ? contextWindowTokens
+      : DEFAULT_MODEL_CONTEXT.contextWindowTokens
+  }
+  updateContextUsageIndicator()
+}
+
+function formatThinkingStatus() {
+  return 'Thinking...'
 }
 
 function formatDuration(durationMs) {

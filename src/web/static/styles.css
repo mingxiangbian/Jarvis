@@ -268,6 +268,7 @@ button {
   gap: 6px;
   position: relative;
   width: 100%;
+  min-height: 40px;
   min-width: 0;
   padding: 4px;
   border: 1px solid transparent;
@@ -285,10 +286,12 @@ button {
 }
 
 .session-title-button {
-  display: block;
+  display: flex;
+  align-items: center;
   width: 100%;
+  min-height: 32px;
   min-width: 0;
-  padding: 7px;
+  padding: 0 7px;
   border-radius: 10px;
   color: var(--ink);
   text-align: left;
@@ -300,6 +303,7 @@ button {
   display: block;
   min-width: 0;
   overflow: hidden;
+  line-height: 1;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -799,7 +803,7 @@ button:disabled {
 
 .composer {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
   gap: 10px;
   align-items: center;
   margin: 0 22px 20px;
@@ -891,6 +895,72 @@ button:disabled {
 
 .context-usage-button.show-value .context-usage-value {
   opacity: 1;
+}
+
+.think-mode-control {
+  position: relative;
+  display: inline-grid;
+  align-self: center;
+  min-width: 116px;
+}
+
+.think-mode-button {
+  min-width: 116px;
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid rgba(117, 139, 166, 0.18);
+  border-radius: 999px;
+  color: #465268;
+  font-size: 12px;
+  font-weight: 800;
+  background: rgba(255, 255, 255, 0.58);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+  cursor: pointer;
+}
+
+.think-mode-button[aria-expanded="true"] {
+  color: #263247;
+  background: linear-gradient(135deg, rgba(247, 168, 207, 0.42), rgba(174, 239, 255, 0.5));
+}
+
+.think-mode-menu {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 4;
+  display: grid;
+  gap: 4px;
+  width: 116px;
+  padding: 5px;
+  border: 1px solid rgba(255, 255, 255, 0.74);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 18px 38px rgba(106, 126, 150, 0.18);
+  backdrop-filter: blur(18px) saturate(150%);
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+}
+
+.think-mode-menu[hidden] {
+  display: none;
+}
+
+.think-mode-option {
+  width: 100%;
+  min-height: 32px;
+  padding: 0 10px;
+  border-radius: 13px;
+  color: #647084;
+  font-size: 12px;
+  font-weight: 800;
+  text-align: left;
+  background: transparent;
+  cursor: pointer;
+}
+
+.think-mode-option.is-active {
+  color: #263247;
+  background: linear-gradient(135deg, rgba(247, 168, 207, 0.46), rgba(174, 239, 255, 0.56));
+  box-shadow: 0 6px 14px rgba(106, 126, 150, 0.12);
 }
 
 .inspector {
@@ -1115,6 +1185,8 @@ body.theme-dark .rail-button,
 body.theme-dark .inspector-edge-toggle,
 body.theme-dark .workspace-change-button,
 body.theme-dark .workspace-picker,
+body.theme-dark .think-mode-button,
+body.theme-dark .think-mode-menu,
 body.theme-dark .markdown-file-select,
 body.theme-dark .markdown-preview,
 body.theme-dark .tool-card {
@@ -1144,6 +1216,8 @@ body.theme-dark .session-row,
 body.theme-dark .session-title-button,
 body.theme-dark .workspace-change-button,
 body.theme-dark .workspace-option,
+body.theme-dark .think-mode-button,
+body.theme-dark .think-mode-option,
 body.theme-dark .icon-button,
 body.theme-dark .tab,
 body.theme-dark .rail-button,
@@ -1156,7 +1230,9 @@ body.theme-dark #promptInput {
 body.theme-dark .nav-action,
 body.theme-dark .send-button,
 body.theme-dark .rail-button.is-active,
-body.theme-dark .tab.is-active {
+body.theme-dark .tab.is-active,
+body.theme-dark .think-mode-button[aria-expanded="true"],
+body.theme-dark .think-mode-option.is-active {
   background: linear-gradient(135deg, rgba(247, 168, 207, 0.34), rgba(93, 220, 255, 0.25), rgba(203, 189, 255, 0.28));
 }
 
@@ -1230,6 +1306,20 @@ body.theme-dark .context-usage-ring::after {
 
 body.theme-dark .context-usage-value {
   color: #d9daf2;
+}
+
+body.theme-dark .think-mode-control {
+  border-color: rgba(203, 213, 236, 0.16);
+  background: rgba(10, 16, 39, 0.46);
+}
+
+body.theme-dark .think-mode-option {
+  color: #9aa8c0;
+}
+
+body.theme-dark .think-mode-option.is-active {
+  color: #f7fbff;
+  background: linear-gradient(135deg, rgba(247, 168, 207, 0.36), rgba(93, 220, 255, 0.28));
 }
 
 body.theme-dark #promptInput::placeholder {

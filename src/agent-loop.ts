@@ -9,6 +9,7 @@ import {
 import type { AppConfig } from './config.js'
 import { maybeAppendDailySummary } from './daily-summary.js'
 import { callModel as defaultCallModel, type CallModelInput, type ChatMessage, type ModelResponse } from './llm-client.js'
+import { contextInfoForRoute } from './models/provider-router.js'
 import { estimateTokensForMessages } from './token-counter.js'
 import { executeToolCall, toolDefinitions } from './tools/index.js'
 import type { Tool, ToolContext } from './tools/types.js'
@@ -16,6 +17,7 @@ import { toolCallSummary, truncateOneLine, type AgentObserver } from './ui-obser
 
 const WEB_SEARCH_UNAVAILABLE_MESSAGE = 'Web search has failed twice consecutively and appears unavailable. Use grep, glob, and file_read for local-only work. Do not call web_search again in this session.'
 const WEB_SEARCH_DISABLED_RESULT = 'web_search is unavailable in this session; use local tools or ask the user to retry later.'
+const EMPTY_RESPONSE_RETRY_PROMPT = 'Your previous response was empty. Provide a clear final answer using the tool results above, or call another tool if needed.'
 
 interface RunAgentLoopBaseInput {
   config: AppConfig
@@ -61,11 +63,13 @@ export async function runAgentLoop(input: RunAgentLoopInput): Promise<RunAgentLo
   let toolCallCount = 0
   let emptyFinalResponseCount = 0
   let lastUnchangedCompactSignature: string | undefined
+  let pendingInternalPrompt: ChatMessage | undefined
 
   while (toolCallCount < input.config.maxToolCallsPerTurn) {
-    applyStagedCompression(messages, input.config)
+    const modelContext = contextInfoForRoute(input.config, 'chat')
+    applyStagedCompression(messages, input.config, modelContext.contextWindowTokens)
 
-    const autoCompactTokenThreshold = input.config.contextWindowTokens * input.config.autoCompactThreshold
+    const autoCompactTokenThreshold = modelContext.contextWindowTokens * input.config.autoCompactThreshold
     if (estimateTokensForMessages(messages) >= autoCompactTokenThreshold) {
       const compactSignature = messageSignature(messages)
       if (compactSignature !== lastUnchangedCompactSignature) {
@@ -82,7 +86,8 @@ export async function runAgentLoop(input: RunAgentLoopInput): Promise<RunAgentLo
                 }
               },
               messages: [{ role: 'user', content: buildSummarizationPrompt(text) }],
-              tools: []
+              tools: [],
+              useCase: 'summarization'
             })
             return response.content
           }
@@ -98,13 +103,16 @@ export async function runAgentLoop(input: RunAgentLoopInput): Promise<RunAgentLo
     }
 
     const thinkingStartedAt = Date.now()
-    notifyObserver(() => observer?.onThinkingStart())
+    notifyObserver(() => observer?.onThinkingStart(modelContext))
     let response: ModelResponse
+    const modelMessages = pendingInternalPrompt === undefined ? messages : [...messages, pendingInternalPrompt]
+    pendingInternalPrompt = undefined
     try {
       response = await callModel({
         config: input.config,
-        messages,
-        tools: toolDefinitions(input.tools)
+        messages: modelMessages,
+        tools: toolDefinitions(input.tools),
+        useCase: 'chat'
       })
     } finally {
       notifyObserver(() => observer?.onThinkingStop(Date.now() - thinkingStartedAt))
@@ -123,11 +131,7 @@ export async function runAgentLoop(input: RunAgentLoopInput): Promise<RunAgentLo
           }
         }
 
-        messages.push({ role: 'assistant', content: response.content })
-        messages.push({
-          role: 'user',
-          content: 'Your previous response was empty. Provide a clear final answer using the tool results above, or call another tool if needed.'
-        })
+        pendingInternalPrompt = { role: 'user', content: EMPTY_RESPONSE_RETRY_PROMPT }
         continue
       }
 
@@ -143,7 +147,8 @@ export async function runAgentLoop(input: RunAgentLoopInput): Promise<RunAgentLo
     messages.push({
       role: 'assistant',
       content: response.content,
-      tool_calls: toolCallsToRun
+      tool_calls: toolCallsToRun,
+      ...(response.providerMetadata === undefined ? {} : { providerMetadata: response.providerMetadata })
     })
 
     for (const toolCall of toolCallsToRun) {
@@ -266,24 +271,25 @@ function messageSignature(messages: ChatMessage[]): string {
       role: message.role,
       content: message.content,
       tool_call_id: message.tool_call_id,
-      tool_calls: message.tool_calls
+      tool_calls: message.tool_calls,
+      providerMetadata: message.providerMetadata
     }))
   )
 }
 
-function applyStagedCompression(messages: ChatMessage[], config: AppConfig): void {
-  if (estimateTokensForMessages(messages) >= config.contextWindowTokens * config.snipThreshold) {
+function applyStagedCompression(messages: ChatMessage[], config: AppConfig, contextWindowTokens: number): void {
+  if (estimateTokensForMessages(messages) >= contextWindowTokens * config.snipThreshold) {
     replaceMessagesIfChanged(messages, snipMessages(messages, config.snipKeepRounds))
   }
 
-  if (estimateTokensForMessages(messages) >= config.contextWindowTokens * config.microcompactThreshold) {
+  if (estimateTokensForMessages(messages) >= contextWindowTokens * config.microcompactThreshold) {
     replaceMessagesIfChanged(
       messages,
       microcompactToolResults(messages, config.microcompactKeepRecentRounds)
     )
   }
 
-  if (estimateTokensForMessages(messages) >= config.contextWindowTokens * config.collapseThreshold) {
+  if (estimateTokensForMessages(messages) >= contextWindowTokens * config.collapseThreshold) {
     replaceMessagesIfChanged(messages, collapseConsecutiveCalls(messages))
   }
 }

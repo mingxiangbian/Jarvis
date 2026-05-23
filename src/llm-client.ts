@@ -1,57 +1,42 @@
 import type { AppConfig } from './config.js'
+import { buildDeepSeekRequest, parseDeepSeekResponse } from './models/deepseek.js'
+import {
+  buildOpenAICompatibleRequest,
+  parseOpenAICompatibleResponse,
+  type ChatCompletionRequestBody,
+  type ChatCompletionResponse
+} from './models/openai-compatible.js'
+import { resolveModelRoute } from './models/provider-router.js'
+import type {
+  CallModelInput,
+  ChatMessage,
+  ChatRole,
+  ModelResponse,
+  ModelToolCall,
+  ModelUseCase
+} from './models/types.js'
 
-export type ChatRole = 'system' | 'user' | 'assistant' | 'tool'
-
-export interface ChatMessage {
-  role: ChatRole
-  content: string
-  tool_call_id?: string
-  tool_calls?: ModelToolCall[]
-}
-
-export interface ModelToolCall {
-  id: string
-  type: 'function'
-  function: {
-    name: string
-    arguments: string
-  }
-}
-
-export interface CallModelInput {
-  config: AppConfig
-  messages: ChatMessage[]
-  tools: unknown[]
-}
-
-export interface ModelResponse {
-  content: string
-  toolCalls: ModelToolCall[]
-}
-
-interface ChatCompletionResponse {
-  choices?: Array<{
-    message?: {
-      content?: string | null
-      tool_calls?: ModelToolCall[]
-    }
-  }>
-}
+export type { CallModelInput, ChatMessage, ChatRole, ModelResponse, ModelToolCall, ModelUseCase }
 
 export async function callModel(input: CallModelInput): Promise<ModelResponse> {
+  const useCase = input.useCase ?? 'chat'
+  const route = resolveModelRoute(input.config, useCase)
+  const body =
+    route.provider === 'deepseek'
+      ? buildDeepSeekRequest(input, route)
+      : buildOpenAICompatibleRequest(input, route)
   const maxAttempts = Math.max(1, input.config.llmRetryMaxAttempts)
+
+  validateModelConfig(input.config, route.model)
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      const response = await requestCompletion(input)
+      const response = await requestCompletion(input.config, body)
       if (response.ok) {
         const data = (await response.json()) as ChatCompletionResponse
-        const message = data.choices?.[0]?.message
-
-        return {
-          content: message?.content ?? '',
-          toolCalls: message?.tool_calls ?? []
-        }
+        return route.provider === 'deepseek'
+          ? parseDeepSeekResponse(data, route)
+          : parseOpenAICompatibleResponse(data, route)
       }
 
       if (isRetryableStatus(response.status) && attempt < maxAttempts) {
@@ -78,47 +63,26 @@ export async function callModel(input: CallModelInput): Promise<ModelResponse> {
   throw new Error('LLM request failed')
 }
 
-async function requestCompletion(input: CallModelInput): Promise<Response> {
-  validateModelConfig(input.config)
-
-  const body: {
-    model: string
-    temperature: number
-    max_tokens: number
-    messages: ChatMessage[]
-    tools?: unknown[]
-    tool_choice?: 'auto'
-  } = {
-    model: input.config.model.model,
-    temperature: input.config.model.temperature,
-    max_tokens: 4096,
-    messages: input.messages
-  }
-
-  if (input.tools.length > 0) {
-    body.tools = input.tools
-    body.tool_choice = 'auto'
-  }
-
+async function requestCompletion(config: AppConfig, body: ChatCompletionRequestBody): Promise<Response> {
   const headers: Record<string, string> = { 'content-type': 'application/json' }
-  if (input.config.model.apiKey?.trim()) {
-    headers.authorization = `Bearer ${input.config.model.apiKey}`
+  if (config.model.apiKey?.trim()) {
+    headers.authorization = `Bearer ${config.model.apiKey}`
   }
 
-  return fetch(`${input.config.model.baseUrl}/chat/completions`, {
+  return fetch(`${config.model.baseUrl}/chat/completions`, {
     method: 'POST',
     headers,
-    signal: AbortSignal.timeout(input.config.llmRequestTimeoutMs),
+    signal: AbortSignal.timeout(config.llmRequestTimeoutMs),
     body: JSON.stringify(body)
   })
 }
 
-function validateModelConfig(config: AppConfig): void {
+function validateModelConfig(config: AppConfig, routeModel: string): void {
   const missing: string[] = []
   if (config.model.baseUrl.trim() === '') {
     missing.push('CYRENE_BASE_URL')
   }
-  if (config.model.model.trim() === '') {
+  if (config.model.model.trim() === '' || routeModel.trim() === '') {
     missing.push('CYRENE_MODEL')
   }
   if (missing.length > 0) {

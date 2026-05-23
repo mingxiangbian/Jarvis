@@ -987,8 +987,9 @@ describe('compactMemories', () => {
       cwd: root,
       dailyContent,
       config,
-      callModel: async ({ messages, tools }) => {
+      callModel: async ({ messages, tools, useCase }) => {
         expect(tools).toEqual([])
+        expect(useCase).toBe('memory_extraction')
         expect(messages[0]?.content).toContain(dailyContent)
         return {
           content: JSON.stringify({

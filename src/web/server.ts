@@ -11,6 +11,8 @@ import {
   type CompactDailyIfNeededInput
 } from '../daily-compaction.js'
 import type { CallModelInput, ChatMessage, ChatRole, ModelResponse } from '../llm-client.js'
+import { contextInfoForRoute } from '../models/provider-router.js'
+import type { ModelContextInfo, ThinkingMode } from '../models/types.js'
 import {
   appendSessionEvent,
   createSession,
@@ -51,6 +53,8 @@ interface RunRecord {
   sessionId: string
   userMessage: ChatMessage
   messages: ChatMessage[]
+  thinkingMode?: ThinkingMode
+  modelContext: ModelContextInfo
   events: WebRunEvent[]
   clients: Set<ServerResponse>
   done: boolean
@@ -259,6 +263,11 @@ async function createRun(
     return
   }
 
+  const runRuntime = await buildAgentRuntime(workspace.absolutePath, new Date(), {
+    thinkingMode: parsed.thinkingMode
+  })
+  const modelContext = contextInfoForRoute(runRuntime.config, 'chat')
+
   let session: SessionIndexItem
   let messages: ChatMessage[]
   try {
@@ -266,7 +275,7 @@ async function createRun(
       session = await createSession({
         cwd: context.cwd,
         mode: 'web',
-        model: context.runtime.config.model.model,
+        model: modelContext.model,
         workspaceId: workspace.id,
         firstUserMessage: userMessage
       })
@@ -308,12 +317,14 @@ async function createRun(
     sessionId: session.id,
     userMessage,
     messages,
+    thinkingMode: parsed.thinkingMode,
+    modelContext,
     events: [],
     clients: new Set(),
     done: false
   }
   context.runs.set(record.id, record)
-  writeJson(response, 202, { runId: record.id, sessionId: record.sessionId })
+  writeJson(response, 202, { runId: record.id, sessionId: record.sessionId, modelContext: record.modelContext })
 
   const runPromise = Promise.resolve()
     .then(() => runWebAgent(record, context.callModel, context.compactDailyIfNeeded))
@@ -329,7 +340,9 @@ async function runWebAgent(
   compactDailyIfNeeded?: (input: CompactDailyIfNeededInput) => Promise<void>
 ): Promise<void> {
   try {
-    const runtime = await buildAgentRuntime(record.workspace.absolutePath)
+    const runtime = await buildAgentRuntime(record.workspace.absolutePath, new Date(), {
+      thinkingMode: record.thinkingMode
+    })
     const modelMessages: ChatMessage[] = [{ role: 'system', content: runtime.systemPrompt }, ...record.messages]
     const persistedStartIndex = modelMessages.length
     const result = await runAgentLoop({
@@ -622,7 +635,13 @@ function writeSseEvent(response: ServerResponse, event: WebRunEvent): void {
   response.write(`data: ${JSON.stringify(event)}\n\n`)
 }
 
-function parseRunRequest(body: unknown): { ok: true; message: ChatMessage; sessionId?: string; workspaceId?: string } | { ok: false; error: string } {
+function parseRunRequest(body: unknown): {
+  ok: true
+  message: ChatMessage
+  sessionId?: string
+  workspaceId?: string
+  thinkingMode?: ThinkingMode
+} | { ok: false; error: string } {
   if (!isObject(body)) {
     return { ok: false, error: 'At least one user message is required.' }
   }
@@ -632,6 +651,11 @@ function parseRunRequest(body: unknown): { ok: true; message: ChatMessage; sessi
     return { ok: false, error: 'workspaceId must be a string.' }
   }
   const workspaceId = typeof body.workspaceId === 'string' ? body.workspaceId : undefined
+  const thinkingModeResult = parseThinkingModeOverride(body.thinkingMode)
+  if (!thinkingModeResult.ok) {
+    return thinkingModeResult
+  }
+  const thinkingMode = thinkingModeResult.thinkingMode
 
   if (Object.prototype.hasOwnProperty.call(body, 'messages')) {
     if (!Array.isArray(body.messages)) {
@@ -661,17 +685,27 @@ function parseRunRequest(body: unknown): { ok: true; message: ChatMessage; sessi
     }
 
     if (typeof body.message === 'string') {
-      return { ok: true, message: { role: 'user', content: body.message }, sessionId, workspaceId }
+      return { ok: true, message: { role: 'user', content: body.message }, sessionId, workspaceId, thinkingMode }
     }
 
-    return { ok: true, message: { role, content: message.content }, sessionId, workspaceId }
+    return { ok: true, message: { role, content: message.content }, sessionId, workspaceId, thinkingMode }
   }
 
   if (typeof body.message === 'string') {
-    return { ok: true, message: { role: 'user', content: body.message }, sessionId, workspaceId }
+    return { ok: true, message: { role: 'user', content: body.message }, sessionId, workspaceId, thinkingMode }
   }
 
   return { ok: false, error: 'At least one user message is required.' }
+}
+
+function parseThinkingModeOverride(value: unknown): { ok: true; thinkingMode?: ThinkingMode } | { ok: false; error: string } {
+  if (value === undefined) {
+    return { ok: true }
+  }
+  if (value === 'auto' || value === 'on' || value === 'off') {
+    return { ok: true, thinkingMode: value }
+  }
+  return { ok: false, error: 'thinkingMode must be auto, on, or off.' }
 }
 
 function decodeRouteWorkspaceId(response: ServerResponse, value: string): string | undefined {
@@ -738,6 +772,13 @@ function contentTypeFor(filePath: string): string {
       return 'text/javascript; charset=utf-8'
     case '.png':
       return 'image/png'
+    case '.jpg':
+    case '.jpeg':
+      return 'image/jpeg'
+    case '.webp':
+      return 'image/webp'
+    case '.gif':
+      return 'image/gif'
     default:
       return 'application/octet-stream'
   }

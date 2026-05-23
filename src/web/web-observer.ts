@@ -1,7 +1,8 @@
 import type { AgentObserver } from '../ui-observer.js'
+import type { ModelContextInfo } from '../models/types.js'
 
 export type WebRunEvent =
-  | { type: 'thinking_start' }
+  | { type: 'thinking_start'; modelContext?: ModelContextInfo }
   | { type: 'thinking_stop'; durationMs: number }
   | { type: 'tool_start'; name: string; summary: string }
   | { type: 'tool_result'; name: string; ok: boolean; durationMs: number; summary: string }
@@ -12,8 +13,11 @@ export type WebEventSink = (event: WebRunEvent) => void
 
 export function createWebObserver(emit: WebEventSink): AgentObserver {
   return {
-    onThinkingStart(): void {
-      emit({ type: 'thinking_start' })
+    onThinkingStart(modelContext?: ModelContextInfo): void {
+      emit({
+        type: 'thinking_start',
+        ...(modelContext === undefined ? {} : { modelContext })
+      })
     },
     onThinkingStop(durationMs: number): void {
       emit({ type: 'thinking_stop', durationMs })

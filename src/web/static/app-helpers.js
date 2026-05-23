@@ -1,5 +1,34 @@
-export function buildRunRequestBody({ sessionId, message, workspaceId }) {
-  return { sessionId, message, workspaceId }
+export function buildRunRequestBody({ sessionId, message, workspaceId, thinkingMode }) {
+  return {
+    sessionId,
+    message,
+    workspaceId,
+    ...(isValidThinkingMode(thinkingMode) ? { thinkingMode } : {})
+  }
+}
+
+export function isValidThinkingMode(value) {
+  return value === 'auto' || value === 'on' || value === 'off'
+}
+
+export function nextThinkingMode(value) {
+  if (value === 'auto') {
+    return 'on'
+  }
+  if (value === 'on') {
+    return 'off'
+  }
+  return 'auto'
+}
+
+export function thinkingModeButtonLabel(value) {
+  if (value === 'on') {
+    return 'Think: On'
+  }
+  if (value === 'off') {
+    return 'Think: Off'
+  }
+  return 'Think: Auto'
 }
 
 export function encodedWorkspaceId(workspaceId) {
@@ -25,6 +54,27 @@ export function contextUsagePercent({ messages, draft = '', contextWindowTokens 
     return 0
   }
   return Math.min(100, Math.max(1, Math.round((tokens / contextWindowTokens) * 100)))
+}
+
+export function contextUsageLabel({ percent, modelContext }) {
+  const model = modelContext?.model || 'current model'
+  const contextWindow = formatContextWindowTokens(modelContext?.contextWindowTokens)
+  return `Context usage ${percent}% of ${model}${contextWindow ? ` ${contextWindow}` : ''}`
+}
+
+export function formatContextWindowTokens(contextWindowTokens) {
+  if (typeof contextWindowTokens !== 'number' || contextWindowTokens <= 0) {
+    return ''
+  }
+  if (contextWindowTokens >= 1_000_000) {
+    const value = contextWindowTokens / 1_048_576
+    return Number.isInteger(value) ? `${value}M` : `${value.toFixed(1)}M`
+  }
+  if (contextWindowTokens >= 1_000) {
+    const value = contextWindowTokens / 1_000
+    return Number.isInteger(value) ? `${value}K` : `${value.toFixed(1)}K`
+  }
+  return `${contextWindowTokens}`
 }
 
 export function ownsMarkdownFilesResponse({
@@ -144,6 +194,19 @@ export function renderMarkdownHtml(markdown, options = {}) {
   return parts.join('')
 }
 
+export function shouldRefreshMarkdownForToolResult(event) {
+  if (event?.type !== 'tool_result' || event.ok !== true) {
+    return false
+  }
+  if (event.name === 'file_write' || event.name === 'file_edit' || event.name === 'file_delete') {
+    return true
+  }
+  if (event.name !== 'bash') {
+    return false
+  }
+  return /\b(rm|mv|cp|touch|mkdir|rmdir|truncate|tee)\b|(^|[^&])>\s*[^&]/.test(String(event.summary || ''))
+}
+
 function parseMarkdownImagePreviewLine(line) {
   const match = line.trim().match(/^!?\[([^\]]*)\]\(([^)]*)\)$/)
   if (!match) {
@@ -153,18 +216,31 @@ function parseMarkdownImagePreviewLine(line) {
 }
 
 function isSafeMarkdownImagePath(path) {
-  if (!path || path.startsWith('/') || path.includes('\\') || !path.endsWith('.png')) {
+  const normalizedPath = normalizeMarkdownImagePath(path)
+  if (!normalizedPath || normalizedPath.startsWith('/') || normalizedPath.includes('\\') || !isSupportedMarkdownImagePath(normalizedPath)) {
     return false
   }
-  if (/^[a-z][a-z0-9+.-]*:/i.test(path)) {
+  if (/^[a-z][a-z0-9+.-]*:/i.test(normalizedPath)) {
     return false
   }
-  return path.split('/').every((segment) => segment !== '' && segment !== '.' && segment !== '..')
+  return normalizedPath.split('/').every((segment) => segment !== '' && segment !== '.' && segment !== '..')
 }
 
 function buildWorkspaceImageSrc(workspaceId, path) {
-  const encodedPath = path.split('/').map((segment) => encodeURIComponent(segment)).join('/')
+  const encodedPath = normalizeMarkdownImagePath(path).split('/').map((segment) => encodeURIComponent(segment)).join('/')
   return `/api/workspaces/${encodedWorkspaceId(workspaceId)}/files/${encodedPath}`
+}
+
+function normalizeMarkdownImagePath(path) {
+  let normalizedPath = String(path || '').trim()
+  while (normalizedPath.startsWith('./')) {
+    normalizedPath = normalizedPath.slice(2)
+  }
+  return normalizedPath
+}
+
+function isSupportedMarkdownImagePath(path) {
+  return /\.(png|jpe?g|webp|gif)$/i.test(path)
 }
 
 export function escapeHtml(value) {

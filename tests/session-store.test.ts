@@ -78,6 +78,73 @@ describe('session store', () => {
     )
   })
 
+  it('round-trips provider metadata without exposing it as display text', async () => {
+    const cwd = await createTempCwd()
+    const session = await createSession({
+      cwd,
+      mode: 'web',
+      model: 'deepseek-v4-pro',
+      id: 'reasoning-session',
+      firstUserMessage: { role: 'user', content: 'Use a tool' }
+    })
+    const providerMetadata = {
+      provider: 'deepseek' as const,
+      model: 'deepseek-v4-pro',
+      thinking: {
+        enabled: true,
+        mode: 'auto' as const,
+        reasoningContent: 'Inspect files before answering.'
+      },
+      usage: {
+        promptTokens: 10,
+        completionTokens: 5,
+        reasoningTokens: 2,
+        cacheHitTokens: 3,
+        cacheMissTokens: 7
+      }
+    }
+
+    await appendSessionEvent({
+      cwd,
+      sessionId: session.id,
+      event: {
+        type: 'message',
+        message: {
+          role: 'assistant',
+          content: '',
+          tool_calls: [
+            {
+              id: 'call-1',
+              type: 'function',
+              function: { name: 'glob', arguments: '{"pattern":"*.ts"}' }
+            }
+          ],
+          providerMetadata
+        }
+      }
+    })
+
+    await expect(loadSession({ cwd, sessionId: session.id, recentMessages: 10 })).resolves.toEqual({
+      session: expect.objectContaining({ id: 'reasoning-session' }),
+      messages: [{ role: 'user', content: 'Use a tool' }],
+      modelMessages: [
+        { role: 'user', content: 'Use a tool' },
+        {
+          role: 'assistant',
+          content: '',
+          tool_calls: [
+            {
+              id: 'call-1',
+              type: 'function',
+              function: { name: 'glob', arguments: '{"pattern":"*.ts"}' }
+            }
+          ],
+          providerMetadata
+        }
+      ]
+    })
+  })
+
   it('keeps unsafe session ids out of the session directory', async () => {
     const cwd = await createTempCwd()
 

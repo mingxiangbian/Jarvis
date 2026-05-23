@@ -1,6 +1,6 @@
 # Cyrene
 
-API-first TypeScript agent runtime with a web UI, REPL mode, project-local memory, and file tools scoped to a workspace.
+API-first TypeScript agent runtime with a web UI, REPL mode, project-local memory, model routing, and file tools scoped to a workspace.
 
 ## Repository
 
@@ -11,7 +11,7 @@ API-first TypeScript agent runtime with a web UI, REPL mode, project-local memor
 
 ## Portability Status
 
-The Node application is portable across normal Node environments. A configured model endpoint is required at runtime, and it only needs to expose an OpenAI-compatible chat completions API.
+The Node application is portable across normal Node environments. A configured model endpoint is required at runtime. Generic providers only need to expose an OpenAI-compatible chat completions API; DeepSeek receives provider-specific request and response handling for thinking mode, reasoning replay, usage metadata, and the larger model context window.
 
 The included `server/start.sh` is a convenience launcher for an MLX/Qwen setup. That path is an optional local fallback and is mainly useful on Apple Silicon machines with `mlx_lm` installed and the model files available locally.
 
@@ -19,7 +19,7 @@ The included `server/start.sh` is a convenience launcher for an MLX/Qwen setup. 
 
 - Node.js 20 or newer
 - npm 10 or newer
-- An OpenAI-compatible model endpoint
+- An OpenAI-compatible or DeepSeek model endpoint
 - Optional: Python plus `mlx_lm` if using `server/start.sh`
 
 ## Setup
@@ -66,9 +66,30 @@ Set these values in `.env` or your shell:
 CYRENE_BASE_URL=https://api.example.com/v1
 CYRENE_MODEL=strong-model-name
 CYRENE_API_KEY=provider-key-if-needed
+CYRENE_MODEL_PROVIDER=
+CYRENE_STRONG_MODEL=
+CYRENE_CHEAP_MODEL=
+CYRENE_THINKING_MODE=auto
 ```
 
 Missing `CYRENE_BASE_URL` or `CYRENE_MODEL` fails fast before the first model request. A remote HTTPS endpoint without `CYRENE_API_KEY` is allowed, but `config doctor` prints a warning because most hosted APIs require a bearer token.
+
+`CYRENE_MODEL_PROVIDER` is optional. Cyrene auto-detects DeepSeek from `CYRENE_BASE_URL=https://api.deepseek.com`; set it explicitly to `deepseek` or `openai-compatible` only when auto-detection is not enough.
+
+`CYRENE_STRONG_MODEL` is used for interactive chat, planning, coding, and reflection routes. `CYRENE_CHEAP_MODEL` is used for lightweight background work such as summarization and memory extraction. Leave either value empty to fall back to `CYRENE_MODEL`. Cheap routes run with thinking disabled to reduce latency and cost.
+
+`CYRENE_THINKING_MODE` accepts `auto`, `on`, or `off`. The web UI also exposes this as a compact `Think: Auto/On/Off` menu in the composer. When using DeepSeek, `off` sends `thinking: { "type": "disabled" }`; `auto` and `on` preserve reasoning metadata for later tool-call turns when the provider returns it.
+
+DeepSeek example:
+
+```bash
+CYRENE_BASE_URL=https://api.deepseek.com
+CYRENE_MODEL=deepseek-v4-pro
+CYRENE_API_KEY=sk-...
+CYRENE_STRONG_MODEL=deepseek-v4-pro
+CYRENE_CHEAP_MODEL=deepseek-v4-flash
+CYRENE_THINKING_MODE=auto
+```
 
 ## Config Doctor
 
@@ -78,7 +99,13 @@ Check the effective runtime configuration with:
 npm run dev -- config doctor
 ```
 
-The doctor reports model endpoint fields, configured tool flags, the optional local fallback script, and the current image-generation status.
+The doctor reports model endpoint fields, provider routing, strong and cheap model names, thinking mode, active interactive context window, configured tool flags, the optional local fallback script, and the current image-generation status.
+
+## Context And Web UI
+
+The web UI uses the active model route to estimate context usage. Known DeepSeek V4 models currently report a 1,048,576 token context window in Cyrene, while unknown OpenAI-compatible models fall back to `contextWindowTokens` from the app config.
+
+The context inspector refreshes Markdown files after successful file mutations, including `file_write`, `file_edit`, `file_delete`, and common shell file operations. Supported Markdown image previews include PNG, JPEG, WebP, and GIF files inside the selected workspace.
 
 ## Feature Flags
 

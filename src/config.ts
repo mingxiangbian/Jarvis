@@ -1,12 +1,18 @@
 import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
+import { resolveProvider } from './models/provider-router.js'
+import type { ModelProviderName, ThinkingMode } from './models/types.js'
 
 export interface ModelConfig {
   baseUrl: string
   model: string
   apiKey?: string
   temperature: number
+  provider: ModelProviderName
+  strongModel: string
+  cheapModel: string
+  thinkingMode: ThinkingMode
 }
 
 export interface FeatureFlags {
@@ -117,16 +123,38 @@ function optionalEnvValue(dotEnv: Record<string, string>, name: string): string 
   return value?.trim() === '' ? undefined : value
 }
 
+function parseProvider(value: string | undefined): ModelProviderName | undefined {
+  if (value === 'deepseek' || value === 'openai-compatible') {
+    return value
+  }
+  return undefined
+}
+
+function parseThinkingMode(value: string | undefined): ThinkingMode {
+  if (value === 'auto' || value === 'on' || value === 'off') {
+    return value
+  }
+  return 'auto'
+}
+
 export function createDefaultConfig(cwd: string): AppConfig {
   const dotEnv = loadDotEnv(cwd)
+  const baseUrl = envValue(dotEnv, 'CYRENE_BASE_URL') ?? ''
+  const model = envValue(dotEnv, 'CYRENE_MODEL') ?? ''
+  const strongModel = optionalEnvValue(dotEnv, 'CYRENE_STRONG_MODEL') ?? model
+  const cheapModel = optionalEnvValue(dotEnv, 'CYRENE_CHEAP_MODEL') ?? strongModel
 
   return {
     cwd,
     model: {
-      baseUrl: envValue(dotEnv, 'CYRENE_BASE_URL') ?? '',
-      model: envValue(dotEnv, 'CYRENE_MODEL') ?? '',
+      baseUrl,
+      model,
       apiKey: optionalEnvValue(dotEnv, 'CYRENE_API_KEY'),
-      temperature: 0
+      temperature: 0,
+      provider: resolveProvider(baseUrl, parseProvider(envValue(dotEnv, 'CYRENE_MODEL_PROVIDER'))),
+      strongModel,
+      cheapModel,
+      thinkingMode: parseThinkingMode(envValue(dotEnv, 'CYRENE_THINKING_MODE'))
     },
     features: {
       bashEnabled: parseBooleanEnv(envValue(dotEnv, 'CYRENE_ENABLE_BASH'), true),

@@ -1,9 +1,10 @@
 import { basename } from 'node:path'
 import * as readline from 'node:readline'
 import chalk from 'chalk'
+import type { ModelContextInfo } from './models/types.js'
 
 export interface AgentObserver {
-  onThinkingStart(): void
+  onThinkingStart(modelContext?: ModelContextInfo): void
   onThinkingStop(durationMs: number): void
   onToolCallStart(name: string, summary: string): void
   onToolCallResult(name: string, ok: boolean, durationMs: number, summary: string): void

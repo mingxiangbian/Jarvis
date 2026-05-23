@@ -3,6 +3,8 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { AppConfig } from '../config.js'
 import { createDefaultConfig } from '../config.js'
+import { contextInfoForRoute } from '../models/provider-router.js'
+import type { ThinkingMode } from '../models/types.js'
 import {
   loadDaily,
   loadGlobalMemories,
@@ -21,12 +23,21 @@ export interface AgentRuntime {
   tools: Tool<unknown>[]
 }
 
-export async function buildAgentRuntime(cwd: string, currentDate = new Date()): Promise<AgentRuntime> {
+export interface AgentRuntimeOverrides {
+  thinkingMode?: ThinkingMode
+}
+
+export async function buildAgentRuntime(
+  cwd: string,
+  currentDate = new Date(),
+  overrides: AgentRuntimeOverrides = {}
+): Promise<AgentRuntime> {
   const currentFile = fileURLToPath(import.meta.url)
   const systemPromptPath = resolve(dirname(currentFile), '..', 'prompts/system.md')
-  const config = createDefaultConfig(resolve(cwd))
+  const config = applyRuntimeOverrides(createDefaultConfig(resolve(cwd)), overrides)
   const baseSystemPrompt = await readFile(systemPromptPath, 'utf8')
   const currentDateText = formatLocalDate(currentDate)
+  const modelRoute = formatActiveModelRoute(config)
   const persona = await loadSoul(config.userCyreneDir, config.cwd)
   const rules = await loadRuleStack(config.cwd, config.userCyreneDir)
   const projectInstructions = await loadInstructionsIfExists(config.cwd)
@@ -36,6 +47,7 @@ export async function buildAgentRuntime(cwd: string, currentDate = new Date()): 
   const systemPrompt = [
     baseSystemPrompt.trimEnd(),
     `# currentDate\nToday's date is ${currentDateText}.`,
+    modelRoute,
     persona,
     rules,
     projectInstructions,
@@ -51,4 +63,29 @@ export async function buildAgentRuntime(cwd: string, currentDate = new Date()): 
     systemPrompt,
     tools: createCoreTools(config)
   }
+}
+
+function applyRuntimeOverrides(config: AppConfig, overrides: AgentRuntimeOverrides): AppConfig {
+  if (overrides.thinkingMode === undefined) {
+    return config
+  }
+
+  return {
+    ...config,
+    model: {
+      ...config.model,
+      thinkingMode: overrides.thinkingMode
+    }
+  }
+}
+
+function formatActiveModelRoute(config: AppConfig): string {
+  const context = contextInfoForRoute(config, 'chat')
+  return [
+    '## Active Model Route',
+    `Provider: ${context.provider}`,
+    `Chat model: ${context.model || '(not configured)'}`,
+    `Thinking mode: ${context.thinkingMode}`,
+    `Context window: ${context.contextWindowTokens} tokens`
+  ].join('\n')
 }

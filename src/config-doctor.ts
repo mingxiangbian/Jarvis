@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { AppConfig } from './config.js'
+import { contextInfoForRoute } from './models/provider-router.js'
 import { createCoreTools } from './tools/index.js'
 
 const appRoot = dirname(dirname(fileURLToPath(import.meta.url)))
@@ -16,6 +17,7 @@ function isRemoteHttps(baseUrl: string): boolean {
 }
 
 export function formatConfigDoctor(config: AppConfig): string {
+  const interactiveContext = contextInfoForRoute(config, 'chat')
   const enabledTools = createCoreTools(config).map((tool) => tool.name)
   const disabledTools: string[] = []
   if (!config.features.bashEnabled) {
@@ -47,6 +49,11 @@ export function formatConfigDoctor(config: AppConfig): string {
     'Model:',
     `  baseUrl: ${config.model.baseUrl || '(missing)'}`,
     `  model: ${config.model.model || '(missing)'}`,
+    `  provider: ${config.model.provider}`,
+    `  strongModel: ${config.model.strongModel || '(missing)'}`,
+    `  cheapModel: ${config.model.cheapModel || '(missing)'}`,
+    `  thinkingMode: ${config.model.thinkingMode}`,
+    `  interactiveContext: ${interactiveContext.contextWindowTokens} tokens`,
     `  apiKey: ${config.model.apiKey?.trim() ? 'configured' : 'missing'}`,
     `  missing: ${missing.length > 0 ? missing.join(', ') : 'none'}`,
     '',

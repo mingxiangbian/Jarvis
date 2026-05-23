@@ -85,6 +85,9 @@ describe('main CLI', () => {
         env: cliEnv({
           CYRENE_BASE_URL: 'https://api.example.com/v1',
           CYRENE_MODEL: 'strong-model',
+          CYRENE_STRONG_MODEL: 'strong-model',
+          CYRENE_CHEAP_MODEL: 'cheap-model',
+          CYRENE_THINKING_MODE: 'auto',
           CYRENE_API_KEY: 'secret-key',
           CYRENE_ENABLE_BASH: '0'
         })
@@ -95,6 +98,11 @@ describe('main CLI', () => {
     expect(result.stdout).toContain('Model:')
     expect(result.stdout).toContain('baseUrl: https://api.example.com/v1')
     expect(result.stdout).toContain('model: strong-model')
+    expect(result.stdout).toContain('provider: openai-compatible')
+    expect(result.stdout).toContain('strongModel: strong-model')
+    expect(result.stdout).toContain('cheapModel: cheap-model')
+    expect(result.stdout).toContain('thinkingMode: auto')
+    expect(result.stdout).toContain('interactiveContext: 256000 tokens')
     expect(result.stdout).toContain('apiKey: configured')
     expect(result.stdout).toContain('enabled: file_read, file_write, file_edit, grep, glob, ask_user, web_search')
     expect(result.stdout).toContain('disabled: bash, mcp')
