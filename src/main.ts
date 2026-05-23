@@ -3,8 +3,13 @@ import { Command } from 'commander'
 import { runAgentLoop } from './agent-loop.js'
 import { createDefaultConfig } from './config.js'
 import { formatConfigDoctor } from './config-doctor.js'
+import { buildInitialMessages } from './context.js'
 import { compactDailyIfNeeded } from './daily-compaction.js'
+import { callModel as defaultCallModel } from './llm-client.js'
+import { contextInfoForRoute } from './models/provider-router.js'
 import { runRepl } from './repl.js'
+import { createRunRecorder } from './tracing/run-recorder.js'
+import { renderTraceReplay } from './tracing/replay.js'
 import { createTerminalObserver } from './ui-observer.js'
 import { buildAgentRuntime } from './web/prompt-context.js'
 import { startWebServer } from './web/server.js'
@@ -33,6 +38,14 @@ async function main(): Promise<void> {
     }
     const config = createDefaultConfig(options.cwd)
     console.log(formatConfigDoctor(config))
+    return
+  }
+  if (program.args[0] === 'trace') {
+    if (program.args.length !== 3 || program.args[1] !== 'replay') {
+      console.error('Usage: cyrene trace replay <runId>')
+      process.exit(1)
+    }
+    process.stdout.write(await renderTraceReplay(options.cwd, program.args[2]))
     return
   }
 
@@ -75,19 +88,39 @@ async function main(): Promise<void> {
   }
 
   const observer = createTerminalObserver(process.stderr, { spinner: false, responseDivider: false })
-  const result = await runAgentLoop({
-    config,
-    observer,
-    systemPrompt,
-    userPrompt: prompt,
-    tools
+  const messages = buildInitialMessages(systemPrompt, prompt)
+  const recorder = await createRunRecorder({
+    cwd: config.cwd,
+    mode: 'cli',
+    userMessage: { role: 'user', content: prompt },
+    modelContext: contextInfoForRoute(config, 'chat')
   })
 
-  console.log(result.finalText)
-  if (result.toolCallCount > 0) {
-    console.error(`tool calls: ${result.toolCallCount}`)
+  try {
+    const result = await runAgentLoop({
+      config,
+      observer: recorder.createObserver(observer),
+      messages,
+      tools,
+      callModel: recorder.wrapCallModel(defaultCallModel)
+    })
+
+    await recorder.recordMessages(messages.slice(1))
+    await recorder.finalize({ status: 'ok', finalText: result.finalText })
+
+    console.log(result.finalText)
+    if (result.toolCallCount > 0) {
+      console.error(`tool calls: ${result.toolCallCount}`)
+    }
+    if (recorder.dir !== undefined) {
+      console.error(`trace: .cyrene/runs/${recorder.runId}`)
+    }
+    await compactDailyIfNeeded({ cwd: config.cwd, config })
+  } catch (error) {
+    await recorder.recordMessages(messages.slice(1))
+    await recorder.finalize({ status: 'error', finalText: '', error })
+    throw error
   }
-  await compactDailyIfNeeded({ cwd: config.cwd, config })
 }
 
 main().catch((error: unknown) => {

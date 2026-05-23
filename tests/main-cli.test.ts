@@ -13,6 +13,10 @@ function cliEnv(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
   return { ...env, ...overrides }
 }
 
+function expectOnlyTraceLine(stderr: string): void {
+  expect(stderr).toMatch(/^trace: \.cyrene\/runs\/[A-Za-z0-9_.-]+\n$/)
+}
+
 describe('main CLI', () => {
   it('rejects --web with a prompt', async () => {
     try {
@@ -229,7 +233,7 @@ describe('main CLI', () => {
       )
 
       expect(result.stdout.trim()).toBe('ok')
-      expect(result.stderr).toBe('')
+      expectOnlyTraceLine(result.stderr)
       const messages = (requestBody as { messages: Array<{ role: string; content: string }> }).messages
       expect(messages[1]).toEqual({ role: 'user', content: 'hello' })
       const systemPrompt = messages[0]?.content ?? ''
@@ -362,6 +366,57 @@ describe('main CLI', () => {
           resolve()
         })
       })
+    }
+  })
+
+  it('creates a trace for one-shot runs and replays it from the CLI', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'cyrene-main-trace-'))
+    const server = createServer((_request, response) => {
+      response.writeHead(200, { 'content-type': 'application/json' })
+      response.end(JSON.stringify({ choices: [{ message: { content: 'trace answer' } }] }))
+    })
+
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const address = server.address()
+    if (address === null || typeof address === 'string') {
+      throw new Error('Expected TCP server address')
+    }
+
+    try {
+      const result = await execFileAsync(
+        process.execPath,
+        ['node_modules/tsx/dist/cli.mjs', 'src/main.ts', '--cwd', root, 'hello trace'],
+        {
+          env: cliEnv({
+            CYRENE_BASE_URL: `http://127.0.0.1:${address.port}/v1`,
+            CYRENE_MODEL: 'test-model'
+          })
+        }
+      )
+      expect(result.stdout).toBe('trace answer\n')
+      const traceLine = result.stderr.split('\n').find((line) => line.startsWith('trace: .cyrene/runs/'))
+      expect(traceLine).toBeDefined()
+      const runId = traceLine?.split('/').at(-1) ?? ''
+
+      const replay = await execFileAsync(
+        process.execPath,
+        ['node_modules/tsx/dist/cli.mjs', 'src/main.ts', '--cwd', root, 'trace', 'replay', runId],
+        { env: cliEnv() }
+      )
+      expect(replay.stderr).toBe('')
+      expect(replay.stdout).toContain('user: hello trace')
+      expect(replay.stdout).toContain('assistant: trace answer')
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => {
+          if (error) {
+            reject(error)
+            return
+          }
+          resolve()
+        })
+      })
+      await rm(root, { recursive: true, force: true })
     }
   })
 
@@ -512,7 +567,7 @@ describe('main CLI', () => {
       )
 
       expect(result.stdout.trim()).toBe('ok')
-      expect(result.stderr).toBe('')
+      expectOnlyTraceLine(result.stderr)
       expect(requestCount).toBe(2)
       await expect(readFile(join(memoryDir, 'daily.md'), 'utf8')).resolves.toBe('')
       await expect(readFile(join(memoryDir, 'daily.archive.md'), 'utf8')).resolves.toBe(dailyContent)
