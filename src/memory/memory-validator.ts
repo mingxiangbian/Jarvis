@@ -37,6 +37,14 @@ export function validateMemoryCandidate(input: ValidateMemoryCandidateInput): Me
     return reject(candidate, now, 'Memory candidate is below minimum evidence or safety threshold')
   }
 
+  if (hasAssistantDerivedEvidence(candidate)) {
+    return {
+      action: 'pending',
+      reason: 'Memory candidate is based on assistant output and requires user confirmation',
+      candidate
+    }
+  }
+
   if (!isAutoWritable(candidate)) {
     return {
       action: 'pending',
@@ -116,7 +124,7 @@ function isAutoWritable(candidate: PendingMemory): boolean {
     return candidate.strength === 'hard'
   }
   if (candidate.domain === 'procedural') {
-    return candidate.strength === 'hard' && candidate.scores.usefulness >= 0.75
+    return candidate.strength === 'hard' && candidate.scores.usefulness >= 0.75 && isTrustedAutoWriteSource(candidate)
   }
   if (candidate.domain === 'system') {
     return candidate.source === 'user_explicit' || candidate.source === 'tool_trace' || candidate.source === 'file'
@@ -128,6 +136,35 @@ function isAutoWritable(candidate: PendingMemory): boolean {
     return candidate.strength === 'hard' && (candidate.source === 'user_explicit' || candidate.userConfirmed === true)
   }
   return false
+}
+
+function isTrustedAutoWriteSource(candidate: PendingMemory): boolean {
+  return (
+    candidate.userConfirmed === true ||
+    candidate.source === 'user_explicit' ||
+    candidate.source === 'tool_trace' ||
+    candidate.source === 'file' ||
+    candidate.source === 'legacy_markdown'
+  )
+}
+
+function hasAssistantDerivedEvidence(candidate: PendingMemory): boolean {
+  if (candidate.userConfirmed === true) {
+    return false
+  }
+
+  return candidate.evidence.some((entry) => {
+    const text = `${entry.summary ?? ''} ${entry.quote ?? ''}`.toLowerCase()
+    return (
+      text.includes('assistant provided') ||
+      text.includes('assistant proposed') ||
+      text.includes('assistant offered') ||
+      text.includes('assistant suggested') ||
+      text.includes('accepted without correction') ||
+      text.includes('did not reject') ||
+      text.includes('without correction')
+    )
+  })
 }
 
 function reject(candidate: PendingMemory, now: string, reason: string): MemoryDecision {

@@ -49,6 +49,41 @@ describe('personal memory validator and lifecycle', () => {
     expect(decision.action === 'pending' ? decision.candidate.strength : undefined).toBe('soft')
   })
 
+  it('does not auto-write procedural rules inferred only from assistant output', () => {
+    const decision = validateMemoryCandidate({
+      candidate: createCandidate({
+        domain: 'procedural',
+        type: 'procedural_rule',
+        strength: 'hard',
+        source: 'assistant_observed',
+        content: 'Use the assistant-generated architecture framework as the default response shape.'
+      }),
+      existingMemories: [],
+      tombstones: [],
+      now: '2026-05-23T00:00:00.000Z'
+    })
+
+    expect(decision.action).toBe('pending')
+  })
+
+  it('does not auto-write candidates justified by assistant proposals without user confirmation', () => {
+    const decision = validateMemoryCandidate({
+      candidate: createCandidate({
+        domain: 'procedural',
+        type: 'procedural_rule',
+        strength: 'hard',
+        source: 'user_explicit',
+        content: 'Use the assistant-generated eight-step architecture framework as the default response shape.',
+        evidenceSummary: 'Assistant provided the framework and user accepted without correction.'
+      }),
+      existingMemories: [],
+      tombstones: [],
+      now: '2026-05-23T00:00:00.000Z'
+    })
+
+    expect(decision.action).toBe('pending')
+  })
+
   it('rejects affective diagnostic claims', () => {
     const decision = validateMemoryCandidate({
       candidate: createCandidate({

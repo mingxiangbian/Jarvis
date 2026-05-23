@@ -129,6 +129,31 @@ describe('personal memory projections and retrieval', () => {
     expect(formatMemoryContext(memories)).toContain('User prefers direct conclusions.')
   })
 
+  it('retrieves procedural response rules during conversation', async () => {
+    const cwd = await createTempDir()
+    await writeActiveMemories(cwd, [
+      createMemory({
+        id: 'architecture-order',
+        domain: 'procedural',
+        type: 'procedural_rule',
+        content: 'When user asks for architecture plan, first give conclusion, then risks, then execution steps.',
+        tags: ['architecture', 'response-format']
+      })
+    ])
+
+    const memories = await retrieveMemories({
+      cwd,
+      userCyreneDir: join(cwd, '.cyrene'),
+      query: '我之后问架构方案时，你应该怎么组织回答？',
+      task: 'conversation',
+      maxItems: 10,
+      maxTokens: 500
+    })
+
+    expect(memories.map((memory) => memory.memory.id)).toEqual(['architecture-order'])
+    expect(formatMemoryContext(memories)).toContain('first give conclusion, then risks, then execution steps')
+  })
+
   it('respects maxItems and maxTokens', async () => {
     const cwd = await createTempDir()
     await writeActiveMemories(cwd, [
@@ -159,6 +184,7 @@ function createMemory(input: {
   content?: string
   safety?: number
   sensitivity?: number
+  tags?: string[]
 }): CyreneMemory {
   return {
     id: input.id,
@@ -180,6 +206,6 @@ function createMemory(input: {
     },
     createdAt: '2026-05-23T00:00:00.000Z',
     updatedAt: '2026-05-23T00:00:00.000Z',
-    tags: []
+    tags: input.tags ?? []
   }
 }

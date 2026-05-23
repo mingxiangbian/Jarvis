@@ -101,7 +101,7 @@ function defaultDomainsForTask(task: NonNullable<RetrieveMemoriesInput['task']>)
     return ['project', 'procedural', 'personal', 'relationship']
   }
   if (task === 'conversation') {
-    return ['personal', 'relationship', 'affective']
+    return ['personal', 'relationship', 'affective', 'procedural']
   }
   return ['project', 'personal', 'relationship', 'affective', 'procedural', 'system']
 }

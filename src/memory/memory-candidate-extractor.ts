@@ -80,6 +80,8 @@ Rules:
 - Prefer no candidates over weak candidates.
 - Do not emit candidates without evidence.
 - Do not write implementation logs unless the result is durable project fact or workflow rule.
+- Do not treat assistant suggestions, assistant wording, or "user did not object" as user preference.
+- User-explicit memory must be supported by the user's prompt, not merely by the assistant final answer.
 - Affective candidates must describe response strategy or interaction pattern, not user pathology.
 - Relationship candidates must describe boundaries or interaction preferences, not fictional intimacy.
 
