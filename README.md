@@ -35,8 +35,9 @@ cp .env.example .env
 - `workspace/`
 - `.cyrene/Soul.md`
 - `.cyrene/Rule.md`
+- `.cyrene/memory/daily.md`
 
-Project persona and rules are read from `.cyrene/Soul.md` and `.cyrene/Rule.md`. Global persona, rules, and global memories are read from `~/.cyrene/` when those files exist.
+Project persona and rules are read from `.cyrene/Soul.md` and `.cyrene/Rule.md`. Project daily memory is stored in `.cyrene/memory/daily.md`. Global persona, rules, and global memories are read from `~/.cyrene/` when those files exist.
 
 Edit `.env` before running agent tasks. `CYRENE_BASE_URL` and `CYRENE_MODEL` are required; `CYRENE_API_KEY` is optional for local servers and usually required for remote HTTPS endpoints.
 
