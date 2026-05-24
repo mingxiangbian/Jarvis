@@ -4,6 +4,8 @@ import { dirname, join, resolve } from 'node:path'
 import { resolveProvider } from './models/provider-router.js'
 import type { ModelProviderName, ThinkingMode } from './models/types.js'
 
+export type EvolutionReflectionMode = 'manual' | 'light' | 'off'
+
 export interface ModelConfig {
   baseUrl: string
   model: string
@@ -37,6 +39,8 @@ export interface AppConfig {
   userCyreneDir: string
   sessionResumeRecentMessages: number
   memoryAutoExtractEnabled: boolean
+  evolutionEnabled: boolean
+  evolutionReflectionMode: EvolutionReflectionMode
   memoryMaxLines: number
   memoryMaxLineLength: number
   readMaxInlineLines: number
@@ -136,6 +140,13 @@ function parseThinkingMode(value: string | undefined): ThinkingMode {
   return 'auto'
 }
 
+function parseEvolutionReflectionMode(value: string | undefined): EvolutionReflectionMode {
+  if (value === 'manual' || value === 'light' || value === 'off') {
+    return value
+  }
+  return 'manual'
+}
+
 export function createDefaultConfig(cwd: string): AppConfig {
   const dotEnv = loadDotEnv(cwd)
   const baseUrl = envValue(dotEnv, 'CYRENE_BASE_URL') ?? ''
@@ -172,6 +183,8 @@ export function createDefaultConfig(cwd: string): AppConfig {
     userCyreneDir: join(homedir(), '.cyrene'),
     sessionResumeRecentMessages: 40,
     memoryAutoExtractEnabled: parseBooleanEnv(envValue(dotEnv, 'CYRENE_MEMORY_AUTO_EXTRACT'), true),
+    evolutionEnabled: parseBooleanEnv(envValue(dotEnv, 'CYRENE_EVOLUTION_ENABLED'), false),
+    evolutionReflectionMode: parseEvolutionReflectionMode(envValue(dotEnv, 'CYRENE_EVOLUTION_REFLECTION_MODE')),
     memoryMaxLines: 200,
     memoryMaxLineLength: 150,
     readMaxInlineLines: 500,

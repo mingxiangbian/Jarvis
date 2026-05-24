@@ -7,6 +7,7 @@ import {
   snipMessages
 } from './context.js'
 import type { AppConfig } from './config.js'
+import { persistRunReflection } from './evolution/reflection.js'
 import { callModel as defaultCallModel, type CallModelInput, type ChatMessage, type ModelResponse } from './llm-client.js'
 import { processRunMemory } from './memory/memory-runtime.js'
 import { contextInfoForRoute } from './models/provider-router.js'
@@ -139,6 +140,7 @@ export async function runAgentLoop(input: RunAgentLoopInput): Promise<RunAgentLo
       messages.push({ role: 'assistant', content: response.content })
       notifyObserver(() => observer?.onResponse(response.content))
       await processMemoryAfterFinal(input, memoryUserPrompt, response.content, callModel)
+      await persistReflectionAfterFinal(input)
       return { finalText: response.content, toolCallCount }
     }
 
@@ -239,6 +241,31 @@ async function processMemoryAfterFinal(
     })
   } catch {
     // Personal memory is best-effort and must not block the agent loop.
+  }
+}
+
+async function persistReflectionAfterFinal(input: RunAgentLoopInput): Promise<void> {
+  if (
+    input.runId === undefined ||
+    !input.config.evolutionEnabled ||
+    input.config.evolutionReflectionMode !== 'light'
+  ) {
+    return
+  }
+
+  try {
+    await persistRunReflection(input.config.memoryCwd, {
+      runId: input.runId,
+      mode: 'light',
+      summary: 'No reusable evolution signal was recorded for this run.',
+      signal: 'none',
+      proposalIds: [],
+      approvalRequired: false,
+      evalRunIds: [],
+      createdAt: new Date().toISOString()
+    })
+  } catch {
+    // Evolution reflection is best-effort and must not block final responses.
   }
 }
 

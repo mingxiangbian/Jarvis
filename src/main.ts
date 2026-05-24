@@ -6,6 +6,14 @@ import { persistContinuitySnapshot } from './affect/affect-runtime.js'
 import { createDefaultConfig } from './config.js'
 import { formatConfigDoctor } from './config-doctor.js'
 import { buildInitialMessages } from './context.js'
+import { runEvalHarness } from './evals/eval-runner.js'
+import type { EvalSuite } from './evals/types.js'
+import {
+  decideEvolutionProposal,
+  listEvolutionProposals,
+  readEvolutionProposal
+} from './evolution/proposal-store.js'
+import { proposeEvolutionFromText } from './evolution/natural-language-proposer.js'
 import { callModel as defaultCallModel } from './llm-client.js'
 import { migrateLegacyMemory } from './memory/memory-migration.js'
 import { formatMemoryContext, retrieveMemories } from './memory/memory-retriever.js'
@@ -33,7 +41,7 @@ async function main(): Promise<void> {
     .option('--host <host>', 'host for the Web console', '127.0.0.1')
     .option('--port <port>', 'port for the Web console', '4317')
 
-  if (isMemoryCommandArgv(process.argv.slice(2))) {
+  if (isLocalCommandArgv(process.argv.slice(2), new Set(['memory', 'eval', 'evolution']))) {
     program.allowUnknownOption()
   }
 
@@ -60,6 +68,14 @@ async function main(): Promise<void> {
   }
   if (program.args[0] === 'memory') {
     await handleMemoryCommand(launchCwd, program.args.slice(1))
+    return
+  }
+  if (program.args[0] === 'eval') {
+    await handleEvalCommand(options.cwd, program.args.slice(1))
+    return
+  }
+  if (program.args[0] === 'evolution') {
+    await handleEvolutionCommand(options.cwd, program.args.slice(1))
     return
   }
 
@@ -141,6 +157,78 @@ async function main(): Promise<void> {
     await recorder.finalize({ status: 'error', finalText: '', error })
     throw error
   }
+}
+
+async function handleEvalCommand(cwd: string, args: string[]): Promise<void> {
+  const parsed = parseEvalArgs(args)
+  if (parsed === undefined) {
+    console.error('Usage: cyrene eval [--suite <trace|memory|affect|security|evolution>] [--proposal <id>] [--json]')
+    process.exit(1)
+  }
+
+  const report = await runEvalHarness({
+    cwd,
+    suites: parsed.suites.length === 0 ? undefined : parsed.suites,
+    proposalId: parsed.proposalId
+  })
+  if (parsed.json) {
+    process.stdout.write(JSON.stringify(report, null, 2) + '\n')
+  } else {
+    process.stdout.write(
+      [
+        `Cyrene eval ${report.evalRunId}`,
+        `passed: ${report.passed ? 'yes' : 'no'}`,
+        `score: ${report.score.toFixed(3)}`,
+        `report: .cyrene/evals/${report.evalRunId}/report.md`
+      ].join('\n') + '\n'
+    )
+  }
+  if (!report.passed) {
+    process.exitCode = 1
+  }
+}
+
+async function handleEvolutionCommand(cwd: string, args: string[]): Promise<void> {
+  const command = args[0]
+  if (command === 'list') {
+    const proposals = await listEvolutionProposals(cwd)
+    process.stdout.write(
+      proposals.map((proposal) =>
+        `${proposal.id}\t${proposal.type}\t${proposal.status}\t${proposal.risk}\t${proposal.summary}`
+      ).join('\n') + (proposals.length === 0 ? '' : '\n')
+    )
+    return
+  }
+
+  if (command === 'inspect' && args[1] !== undefined) {
+    process.stdout.write(JSON.stringify(await readEvolutionProposal(cwd, args[1]), null, 2) + '\n')
+    return
+  }
+
+  if (command === 'propose' && args.length > 1) {
+    process.stdout.write(JSON.stringify(await proposeEvolutionFromText({ cwd, text: args.slice(1).join(' ') }), null, 2) + '\n')
+    return
+  }
+
+  if ((command === 'approve' || command === 'reject') && args[1] !== undefined) {
+    process.stdout.write(
+      JSON.stringify(
+        await decideEvolutionProposal({
+          cwd,
+          proposalId: args[1],
+          status: command === 'approve' ? 'approved' : 'rejected',
+          channel: 'cli',
+          reason: parseReason(args)
+        }),
+        null,
+        2
+      ) + '\n'
+    )
+    return
+  }
+
+  console.error('Usage: cyrene evolution <list|inspect <proposalId>|propose <text>|approve <proposalId>|reject <proposalId> [--reason <text>]>')
+  process.exit(1)
 }
 
 async function handleMemoryCommand(cwd: string, args: string[]): Promise<void> {
@@ -246,14 +334,69 @@ function parseLimit(args: string[]): number | undefined {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined
 }
 
-function isMemoryCommandArgv(args: string[]): boolean {
+function parseEvalArgs(args: string[]): { suites: EvalSuite[]; proposalId?: string; json: boolean } | undefined {
+  const suites: EvalSuite[] = []
+  let proposalId: string | undefined
+  let json = false
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index]
+    if (arg === '--json') {
+      json = true
+      continue
+    }
+    if (arg === '--suite') {
+      const suite = parseEvalSuite(args[index + 1])
+      if (suite === undefined) return undefined
+      suites.push(suite)
+      index += 1
+      continue
+    }
+    if (arg.startsWith('--suite=')) {
+      const suite = parseEvalSuite(arg.slice('--suite='.length))
+      if (suite === undefined) return undefined
+      suites.push(suite)
+      continue
+    }
+    if (arg === '--proposal') {
+      if (args[index + 1] === undefined) return undefined
+      proposalId = args[index + 1]
+      index += 1
+      continue
+    }
+    if (arg.startsWith('--proposal=')) {
+      proposalId = arg.slice('--proposal='.length)
+      if (proposalId === '') return undefined
+      continue
+    }
+    return undefined
+  }
+
+  return { suites, proposalId, json }
+}
+
+function parseEvalSuite(value: string | undefined): EvalSuite | undefined {
+  if (value === 'trace' || value === 'memory' || value === 'affect' || value === 'security' || value === 'evolution') {
+    return value
+  }
+  return undefined
+}
+
+function parseReason(args: string[]): string | undefined {
+  const index = args.indexOf('--reason')
+  if (index < 0) return undefined
+  const reason = args[index + 1]
+  return reason === undefined || reason.trim() === '' ? undefined : reason
+}
+
+function isLocalCommandArgv(args: string[], commands: Set<string>): boolean {
   const optionsWithValues = new Set(['--cwd', '--resume', '--host', '--port'])
   const booleanOptions = new Set(['--repl', '--web'])
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index]
     if (arg === '--') {
-      return args[index + 1] === 'memory'
+      return commands.has(args[index + 1])
     }
     if (optionsWithValues.has(arg)) {
       index += 1
@@ -268,7 +411,7 @@ function isMemoryCommandArgv(args: string[]): boolean {
     if (arg.startsWith('-')) {
       return false
     }
-    return arg === 'memory'
+    return commands.has(arg)
   }
 
   return false

@@ -190,10 +190,30 @@ describe('createDefaultConfig', () => {
     expect(config.userCyreneDir).toBe(join(homedir(), '.cyrene'))
     expect(config.sessionResumeRecentMessages).toBe(40)
     expect(config.memoryAutoExtractEnabled).toBe(true)
+    expect(config.evolutionEnabled).toBe(false)
+    expect(config.evolutionReflectionMode).toBe('manual')
     expect(config.memoryMaxLines).toBe(200)
     expect(config.memoryMaxLineLength).toBe(150)
     expect(config.readableRoots).toEqual(['/tmp/project'])
     expect(config.writableRoots).toEqual(['/tmp/project'])
+  })
+
+  it('uses evolution environment overrides', () => {
+    vi.stubEnv('CYRENE_EVOLUTION_ENABLED', '1')
+    vi.stubEnv('CYRENE_EVOLUTION_REFLECTION_MODE', 'light')
+
+    const config = createDefaultConfig('/tmp/project')
+
+    expect(config.evolutionEnabled).toBe(true)
+    expect(config.evolutionReflectionMode).toBe('light')
+  })
+
+  it('falls back to manual reflection mode for invalid values', () => {
+    vi.stubEnv('CYRENE_EVOLUTION_REFLECTION_MODE', 'sometimes')
+
+    const config = createDefaultConfig('/tmp/project')
+
+    expect(config.evolutionReflectionMode).toBe('manual')
   })
 
   it('blocks dangerous bash command variants', () => {

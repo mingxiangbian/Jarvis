@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { z } from 'zod'
@@ -370,6 +370,34 @@ describe('runAgentLoop', () => {
     expect(memoryInputs).toEqual([
       { cwd: '/tmp/cyrene-root', runId: 'run-1', userPrompt: 'remember this', finalText: 'stored' }
     ])
+  })
+
+  it('persists a light evolution reflection after final responses when enabled', async () => {
+    const memoryCwd = await createTempDir()
+    const config = createDefaultConfig('/tmp/workspace')
+    config.memoryCwd = memoryCwd
+    config.evolutionEnabled = true
+    config.evolutionReflectionMode = 'light'
+
+    const result = await runAgentLoop({
+      config,
+      systemPrompt: 'system',
+      userPrompt: 'ship a small change',
+      tools: [],
+      runId: 'run-1',
+      personalMemory: { processRunMemory: memoryProcessor([]) },
+      callModel: async (): Promise<ModelResponse> => ({ content: 'done', toolCalls: [] })
+    })
+
+    expect(result.finalText).toBe('done')
+    const reflection = JSON.parse(
+      await readFile(join(memoryCwd, '.cyrene', 'reflections', 'run-1.json'), 'utf8')
+    ) as { runId: string; signal: string; approvalRequired: boolean }
+    expect(reflection).toMatchObject({
+      runId: 'run-1',
+      signal: 'none',
+      approvalRequired: false
+    })
   })
 
   it('processes session-style runs with the latest real user message after an empty-response retry', async () => {
