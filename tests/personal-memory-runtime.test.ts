@@ -184,6 +184,8 @@ describe('personal memory runtime pipeline', () => {
 
     expect(prompt).toContain('Do not infer psychological diagnoses')
     expect(prompt).toContain('Relationship candidates must describe boundaries')
+    expect(prompt).toContain('If the user explicitly asks to remember temporary or session context, emit an episode candidate')
+    expect(prompt).toContain('Episode candidates must use domain "personal", strength "session", and scope "session"')
   })
 })
 

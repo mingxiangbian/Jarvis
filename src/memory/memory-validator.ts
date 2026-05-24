@@ -113,14 +113,21 @@ export function isPromotablePending(candidate: PendingMemory): boolean {
 }
 
 function normalizeCandidate(candidate: PendingMemory): PendingMemory {
+  if (candidate.type === 'episode') {
+    return { ...candidate, domain: 'personal', strength: 'session', scope: 'session' }
+  }
   if (candidate.domain === 'personal' && candidate.source !== 'user_explicit' && candidate.userConfirmed !== true) {
     return { ...candidate, strength: 'soft' }
   }
   if (candidate.domain === 'relationship' && candidate.source !== 'user_explicit' && candidate.userConfirmed !== true) {
     return { ...candidate, strength: 'soft' }
   }
-  if (candidate.domain === 'affective' && candidate.strength === 'hard') {
-    return { ...candidate, strength: 'soft' }
+  if (candidate.domain === 'affective') {
+    return {
+      ...candidate,
+      strength: candidate.strength === 'hard' ? 'soft' : candidate.strength,
+      scope: 'session'
+    }
   }
   return candidate
 }

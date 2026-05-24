@@ -138,7 +138,7 @@ describe('personal memory validator and lifecycle', () => {
     expect(decision.action).toBe('reject')
   })
 
-  it('blocks affective hard global auto-write', () => {
+  it('keeps non-diagnostic affective hard global candidates pending as soft session memory', () => {
     const decision = validateMemoryCandidate({
       candidate: createCandidate({
         domain: 'affective',
@@ -152,7 +152,9 @@ describe('personal memory validator and lifecycle', () => {
       now: '2026-05-23T00:00:00.000Z'
     })
 
-    expect(decision.action).toBe('reject')
+    expect(decision.action).toBe('pending')
+    expect(decision.action === 'pending' ? decision.candidate.strength : undefined).toBe('soft')
+    expect(decision.action === 'pending' ? decision.candidate.scope : undefined).toBe('session')
   })
 
   it('requires expiresAt for session episode memory', () => {
@@ -173,6 +175,27 @@ describe('personal memory validator and lifecycle', () => {
     })
 
     expect(decision.action).toBe('reject')
+  })
+
+  it('normalizes episode candidates to personal session memory', () => {
+    const decision = validateMemoryCandidate({
+      candidate: createCandidate({
+        domain: 'procedural',
+        type: 'episode',
+        strength: 'hard',
+        scope: 'global',
+        source: 'user_explicit',
+        content: 'This session is testing Web-triggered memory extraction.'
+      }),
+      existingMemories: [],
+      tombstones: [],
+      now: '2026-05-23T00:00:00.000Z'
+    })
+
+    expect(decision.action).toBe('pending')
+    expect(decision.action === 'pending' ? decision.candidate.domain : undefined).toBe('personal')
+    expect(decision.action === 'pending' ? decision.candidate.strength : undefined).toBe('session')
+    expect(decision.action === 'pending' ? decision.candidate.scope : undefined).toBe('session')
   })
 
   it('uses tombstones to reject repeated rejected candidates', () => {
