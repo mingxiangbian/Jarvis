@@ -134,14 +134,25 @@ The desktop-ready design must preserve the component language of:
 
 Phase 8A may polish Cyrene's current visual language, but it must not replace it.
 
+The intended polish direction is:
+
+```txt
+neomorphism / neumorphism / soft UI / soft shadow interface / tactile minimal UI
+```
+
+Cyrene should feel light, soft, and touchable. Surfaces should look slightly raised or pressed into the same material, as if the user can physically press the controls. This must stay minimal and restrained rather than decorative.
+
 Allowed polish:
 
 - Improve color balance while staying within the existing fog/ice/pink/cyan/lavender/warm palette.
-- Refine glass panel depth, line contrast, blur, and shadow.
+- Refine glass panel depth, line contrast, blur, soft shadow, and weak highlight.
+- Add subtle raised and pressed states for controls, cards, tabs, composer, and inspector actions.
 - Improve spacing, typography, and visual hierarchy for desktop use.
 - Improve button states: hover, active, disabled, danger, approval, rejected, and applied.
 - Improve panel density for Tools, Memory, Affect, Trace, and Evolution.
 - Make live run status, pending approval, high-risk action, and trace timeline easier to scan.
+- Preserve and refine current thinking/running light-ring motion.
+- Add restrained ambient gradient motion around the app shell or background when it supports state comprehension.
 - Let Figma propose one or two refined variants that remain recognizably Cyrene.
 
 Disallowed polish:
@@ -159,6 +170,77 @@ Acceptance phrase:
 First glance: this is Cyrene.
 Second glance: it is more mature and desktop-ready than the Web prototype.
 ```
+
+## Soft UI Direction
+
+Phase 8A should make the current Cyrene Web UI more tactile without making it visually busy.
+
+### Surface Model
+
+Use soft shadows, same-family backgrounds, weak highlights, and rounded surfaces to create a floating, pressable interface.
+
+Required surface qualities:
+
+- Large panels feel softly elevated above the fog/ice background.
+- Buttons and icon controls feel pressable, with a clear raised, hover, active, and pressed state.
+- Inputs and dense data rows may use a shallow inset effect where it improves affordance.
+- Inspector cards and timeline entries use subtle depth instead of hard borders.
+- Shadows stay broad and low-contrast; no hard black shadow or high-contrast bevel.
+- Highlights remain weak and directional, as if catching soft ambient light.
+- Roundness stays close to current tokens: 28px large panels, 20px medium surfaces, 14px compact controls.
+
+### Color Strategy
+
+Use a restrained cool base with a small warm accent:
+
+```txt
+base: fog / ice / very low-saturation cyan-blue
+accent: pink, under 5% of visible surface area
+secondary accent: warm only for caution or pending review
+```
+
+This chooses the blue-base direction rather than a pink-base direction. The reason is practical: Cyrene has many operational surfaces, data rows, traces, tools, and approvals. A fog/ice-blue base keeps the UI calm and readable for long sessions, while pink remains the emotional and brand accent.
+
+Usage rules:
+
+- Blue/fog/ice carries the background, panels, passive controls, data surfaces, and calm system state.
+- Pink is reserved for primary action, selected state, personality highlight, or a key attention cue.
+- Pink should not exceed roughly 5% of the viewport in normal states.
+- Cyan can remain as ambient light and data glow, but should avoid becoming a saturated block.
+- Warm is reserved for caution, pending approval, or blocked review states.
+- Ink and muted text remain the main readability layer.
+
+### Information Layering
+
+Use module grouping and visual-first scanning:
+
+- Group information by scene: chat, live run, review, memory, trace, evolution.
+- Prefer visual summaries before dense text: status chips, rings, timelines, meters, badges, compact cards.
+- Keep the chat area visually calm; move operational density into inspector states.
+- Show high-risk or pending review states as a visual posture, not only text.
+- Use icons to simplify high-frequency entry points, but keep labels where ambiguity would slow the user.
+
+### Interaction Efficiency
+
+Controls should stay minimal and contextual:
+
+- High-frequency actions use icons with tooltips when the icon is familiar.
+- Core action buttons use low-saturation color and soft micro-interaction rather than aggressive fill.
+- Review actions are shown only in the relevant scene.
+- The inspector should guide the user with state-specific actions, not static instructions.
+- Dangerous or irreversible actions need distinct state treatment, but still stay within the soft UI language.
+
+### Motion
+
+Motion should extend the existing Web feeling instead of becoming ornamental.
+
+Required motion direction:
+
+- Preserve the current thinking/running light-ring idea.
+- Add soft pulsing or orbital motion only for active thinking, active run, or waiting approval.
+- Allow subtle background or app-edge gradient movement for active states.
+- Avoid constant high-energy animation while idle.
+- Motion must never hide text, shift layout unexpectedly, or obscure controls.
 
 ## Hybrid App Shell Behavior
 
@@ -313,12 +395,16 @@ Design acceptance:
 
 ```txt
 [ ] Figma design is based on current Web UI tokens, screenshots and DOM structure.
+[ ] Design defines a neomorphic / neumorphic / soft UI direction based on current Cyrene tokens.
+[ ] Design uses fog/ice/cool-blue base with pink accent under roughly 5% in normal states.
 [ ] Design includes chat-first default state.
 [ ] Design includes inspector closed/open state.
 [ ] Design includes detail inspector / review posture.
 [ ] Design includes running state / live run monitor.
 [ ] Design includes pending approval / high-risk action state.
 [ ] Design preserves Cyrene's current visual identity.
+[ ] Design includes tactile raised, hover, active, pressed and disabled control states.
+[ ] Design specifies motion for thinking/running/approval without creating idle visual noise.
 [ ] Design includes limited polish that still feels like Cyrene.
 ```
 
@@ -332,6 +418,8 @@ Implementation acceptance for the future Phase 8A plan:
 [ ] Chat-first empty state works.
 [ ] Tools/Memory/Affect/Trace/Evolution panels remain scannable and operable.
 [ ] High-risk action hierarchy is visually clear.
+[ ] Soft shadows, raised controls, inset states, and weak highlights render without muddy contrast.
+[ ] Background or thinking animations do not shift layout, obscure text, or distract while idle.
 ```
 
 Phase 8B acceptance:
@@ -348,6 +436,14 @@ Phase 8B acceptance:
 Risk: Desktop polish changes the product identity.
 
 Mitigation: Treat current Web UI tokens and screenshots as the visual source of truth. Figma variants must explain how they preserve the existing identity.
+
+Risk: Neumorphism reduces contrast or makes controls ambiguous.
+
+Mitigation: Every soft surface still needs readable ink/muted text contrast and clear hover, active, pressed, disabled and selected states. Use Browser screenshots to catch muddy contrast.
+
+Risk: Ambient animation distracts from chat and review work.
+
+Mitigation: Animation is stateful and quiet. Idle screens remain mostly still; motion appears for thinking, running, waiting or approval scenes.
 
 Risk: Figma design becomes too ambitious for the current vanilla JS/CSS frontend.
 
