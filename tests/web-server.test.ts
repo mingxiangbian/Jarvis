@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { createEvolutionProposal } from '../src/evolution/proposal-store.js'
 import type { CallModelInput, ModelResponse } from '../src/llm-client.js'
 import { startWebServer, type WebServerHandle } from '../src/web/server.js'
 
@@ -67,7 +68,10 @@ describe('startWebServer', () => {
     expect(body).toContain('aria-controls="workspacePicker"')
     expect(body).toContain('id="workspacePicker"')
     expect(body).toContain('id="inspectorEdgeToggle"')
-    expect(body).toContain('<button class="tab" type="button" data-tab="continuity">Continuity</button>')
+    expect(body).toContain('<button class="tab" type="button" data-tab="memory">Memory</button>')
+    expect(body).toContain('<button class="tab" type="button" data-tab="affect">Affect</button>')
+    expect(body).toContain('<button class="tab" type="button" data-tab="trace">Trace</button>')
+    expect(body).toContain('<button class="tab" type="button" data-tab="evolution">Evolution</button>')
     expect(body).toContain('id="contextUsageButton"')
     expect(body).toContain('id="contextUsageValue"')
     expect(body).toContain('id="thinkModeControl"')
@@ -105,7 +109,7 @@ describe('startWebServer', () => {
     expect(body).not.toContain('class="sidebar-card"')
     expect(body).not.toContain('href="#context"')
     expect(body).not.toContain('href="#tools"')
-    expect(body).not.toContain('data-tab="memory"')
+    expect(body).not.toContain('data-tab="continuity"')
     expect(body).not.toContain('href="#chat">Console</a>')
     expect(body).not.toContain('aria-label="Console"')
     expect(body).not.toContain('id="workspaceCurrent"')
@@ -151,6 +155,9 @@ describe('startWebServer', () => {
     expect(body).toContain('.think-mode-option.is-active')
     expect(body).toContain('conic-gradient')
     expect(body).toContain('.context-panel')
+    expect(body).toContain('.control-panel')
+    expect(body).toContain('.control-error')
+    expect(body).toContain('.inspector.is-detail')
     expect(body).toContain('.continuity-panel')
     expect(body).toContain('overflow-x: auto')
     expect(body).toContain('min-width: max-content')
@@ -204,6 +211,7 @@ describe('startWebServer', () => {
     expect(body).not.toContain('.brand-avatar::after')
     expect(body).not.toContain('.avatar-cartoon::after')
     expect(body).not.toContain('.activity-status')
+    expect(body).not.toContain('.memory-pin')
     expect(body).not.toContain('.thinking-orb')
     expect(body).not.toContain('.thinking-core')
     expect(body).not.toContain('.thought-particle')
@@ -496,6 +504,10 @@ describe('startWebServer', () => {
     expect(body).toContain('renderMarkdownPreview')
     expect(body).toContain("state.selectedMarkdownContent = ''\n  renderInspector()")
     expect(body).toContain('app-helpers.js')
+    expect(body).toContain('api-client.js')
+    expect(body).toContain('inspector.js')
+    expect(body).toContain('panels/tools-panel.js')
+    expect(body).toContain('setInspectorDetailMode')
     expect(body).toContain('renderMarkdownHtml')
     expect(body).toContain('ownsMarkdownFileResponse')
     expect(body).toContain('contextUsagePercent')
@@ -515,7 +527,10 @@ describe('startWebServer', () => {
     expect(body).toContain('updateContextUsageIndicator')
     expect(body).toContain('modelContext')
     expect(body).toContain('formatThinkingStatus')
-    expect(body).toContain('renderContinuityPanel')
+    expect(body).toContain('renderMemoryPanel')
+    expect(body).toContain('renderAffectPanel')
+    expect(body).toContain('renderTracePanel')
+    expect(body).toContain('renderEvolutionPanel')
     expect(body).toContain('state.continuity')
     expect(body).toContain('cancelActiveRun')
     expect(body).toContain('/cancel')
@@ -716,6 +731,45 @@ describe('startWebServer', () => {
 
     const metrics = JSON.parse(await readFile(join(traceDir, 'metrics.json'), 'utf8')) as { status: string }
     expect(metrics.status).toBe('ok')
+  })
+
+  it('serves summary-only trace data through the control API', async () => {
+    const cwd = await createTempCwd()
+    const callModel = vi.fn(async (_input: CallModelInput): Promise<ModelResponse> => ({ content: 'web trace answer', toolCalls: [] }))
+    const server = await startWebServer({
+      cwd,
+      host: '127.0.0.1',
+      port: 0,
+      callModel
+    })
+    servers.push(server)
+
+    const createResponse = await fetch(`${server.url}/api/runs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ message: 'trace summary web' })
+    })
+    expect(createResponse.status).toBe(202)
+    const createBody = (await createResponse.json()) as { runId: string }
+    await readRunEventStream(`${server.url}/api/runs/${createBody.runId}/events`)
+
+    const listResponse = await fetch(`${server.url}/api/control/traces`)
+    expect(listResponse.status).toBe(200)
+    const listBody = await listResponse.json() as { ok: true; data: { traces: Array<{ runId: string }> } }
+    expect(listBody.data.traces).toEqual([
+      expect.objectContaining({ runId: createBody.runId })
+    ])
+
+    const detailResponse = await fetch(`${server.url}/api/control/traces/${createBody.runId}`)
+    expect(detailResponse.status).toBe(200)
+    const detailText = await detailResponse.text()
+    expect(detailText).toContain('"finalText":"web trace answer"')
+    expect(detailText).not.toContain('raw')
+    expect(detailText).not.toContain('arguments')
+    expect(detailText).not.toContain('output')
+    expect(detailText).not.toContain('systemPrompt')
+    expect(detailText).not.toContain('Authorization')
+    expect(detailText).not.toContain('apiKey')
   })
 
   it('returns model context for run creation and thinking events', async () => {
@@ -1349,6 +1403,338 @@ describe('startWebServer', () => {
     await expect(unsupportedMethodResponse.json()).resolves.toEqual({ error: 'Not found.' })
   })
 
+  it('persists session tool toggles and filters the next Web run schema', async () => {
+    const seenTools: string[][] = []
+    const callModel = vi.fn(async (input: CallModelInput): Promise<ModelResponse> => {
+      const tools = input.tools as Array<{ function: { name: string } }>
+      seenTools.push(tools.map((tool) => tool.function.name))
+      return { content: 'tool filtered', toolCalls: [] }
+    })
+    const server = await startServer(callModel)
+
+    const createResponse = await fetch(`${server.url}/api/runs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ message: 'start session' })
+    })
+    expect(createResponse.status).toBe(202)
+    const createBody = (await createResponse.json()) as { runId: string; sessionId: string }
+    await readRunEventStream(`${server.url}/api/runs/${createBody.runId}/events`)
+
+    const patchResponse = await fetch(`${server.url}/api/control/sessions/${createBody.sessionId}/tools`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ disabledTools: ['glob'] })
+    })
+    expect(patchResponse.status).toBe(200)
+    await expect(patchResponse.json()).resolves.toEqual({
+      ok: true,
+      data: {
+        session: expect.objectContaining({
+          id: createBody.sessionId,
+          disabledTools: ['glob']
+        })
+      }
+    })
+
+    const resumeResponse = await fetch(`${server.url}/api/runs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ sessionId: createBody.sessionId, message: 'resume session' })
+    })
+    expect(resumeResponse.status).toBe(202)
+    const resumeBody = (await resumeResponse.json()) as { runId: string }
+    await readRunEventStream(`${server.url}/api/runs/${resumeBody.runId}/events`)
+
+    expect(seenTools[0]).toContain('glob')
+    expect(seenTools[1]).not.toContain('glob')
+  })
+
+  it('applies pending tool toggles to the first Web run for a new session', async () => {
+    const seenTools: string[][] = []
+    const callModel = vi.fn(async (input: CallModelInput): Promise<ModelResponse> => {
+      const tools = input.tools as Array<{ function: { name: string } }>
+      seenTools.push(tools.map((tool) => tool.function.name))
+      return { content: 'first run filtered', toolCalls: [] }
+    })
+    const server = await startServer(callModel)
+
+    const createResponse = await fetch(`${server.url}/api/runs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ message: 'start session', disabledTools: ['glob'] })
+    })
+    expect(createResponse.status).toBe(202)
+    const createBody = (await createResponse.json()) as { runId: string; sessionId: string }
+    await readRunEventStream(`${server.url}/api/runs/${createBody.runId}/events`)
+
+    const sessionResponse = await fetch(`${server.url}/api/sessions/${createBody.sessionId}`)
+    expect(sessionResponse.status).toBe(200)
+    const sessionBody = await sessionResponse.json() as { session: { disabledTools?: string[] } }
+
+    expect(seenTools[0]).not.toContain('glob')
+    expect(sessionBody.session.disabledTools).toEqual(['glob'])
+  })
+
+  it('returns a tool manifest for the current session and ignores config-disabled tools', async () => {
+    vi.stubEnv('CYRENE_ENABLE_WEB_SEARCH', '0')
+    const server = await startServer()
+    const createResponse = await fetch(`${server.url}/api/runs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ message: 'start session' })
+    })
+    expect(createResponse.status).toBe(202)
+    const createBody = (await createResponse.json()) as { runId: string; sessionId: string }
+    await readRunEventStream(`${server.url}/api/runs/${createBody.runId}/events`)
+
+    const manifestResponse = await fetch(`${server.url}/api/control/tools?sessionId=${createBody.sessionId}`)
+    expect(manifestResponse.status).toBe(200)
+    const manifest = await manifestResponse.json() as {
+      ok: true
+      data: { tools: Array<{ name: string; enabledByConfig: boolean; disabledForSession: boolean }> }
+    }
+
+    expect(manifest.data.tools.some((tool) => tool.name === 'glob' && tool.enabledByConfig)).toBe(true)
+    expect(manifest.data.tools.some((tool) => tool.name === 'web_search')).toBe(false)
+    expect(manifest.data.tools.some((tool) => tool.disabledForSession)).toBe(false)
+  })
+
+  it('archives active memory through the guarded control API', async () => {
+    const cwd = await createTempCwd()
+    await seedActiveMemory(cwd, {
+      id: 'memory-1',
+      content: 'Use direct implementation when the user says execute.'
+    })
+    const server = await startWebServer({
+      cwd,
+      host: '127.0.0.1',
+      port: 0,
+      callModel: async (): Promise<ModelResponse> => ({ content: 'unused', toolCalls: [] })
+    })
+    servers.push(server)
+
+    const archiveResponse = await fetch(`${server.url}/api/control/memory/memory-1/archive`, { method: 'POST' })
+    expect(archiveResponse.status).toBe(200)
+    const archiveBody = await archiveResponse.json() as { ok: true; data: { action: string; active: unknown[] } }
+
+    expect(archiveBody.data.action).toBe('archive')
+    expect(archiveBody.data.active).toHaveLength(0)
+    await expect(readFile(join(cwd, '.cyrene', 'memory', 'index.jsonl'), 'utf8')).resolves.toBe('')
+    await expect(readFile(join(cwd, '.cyrene', 'memory', 'events.jsonl'), 'utf8')).resolves.toContain('"action":"archive"')
+    await expect(readFile(join(cwd, '.cyrene', 'memory', 'tombstones.jsonl'), 'utf8')).resolves.toContain('"reason":"archived"')
+    await expect(readFile(join(cwd, '.cyrene', 'memory', 'MEMORY.md'), 'utf8')).resolves.toContain('_No active memories._')
+  })
+
+  it('downranks active memory through the guarded control API', async () => {
+    const cwd = await createTempCwd()
+    await seedActiveMemory(cwd, {
+      id: 'memory-1',
+      content: 'Always preserve exact user wording.'
+    })
+    const server = await startWebServer({
+      cwd,
+      host: '127.0.0.1',
+      port: 0,
+      callModel: async (): Promise<ModelResponse> => ({ content: 'unused', toolCalls: [] })
+    })
+    servers.push(server)
+
+    const downrankResponse = await fetch(`${server.url}/api/control/memory/memory-1/downrank`, { method: 'POST' })
+    expect(downrankResponse.status).toBe(200)
+    const downrankBody = await downrankResponse.json() as {
+      ok: true
+      data: { action: string; memory: { scores: { usefulness: number } } }
+    }
+
+    expect(downrankBody.data.action).toBe('downrank')
+    expect(downrankBody.data.memory.scores.usefulness).toBeLessThan(0.9)
+    await expect(readFile(join(cwd, '.cyrene', 'memory', 'events.jsonl'), 'utf8')).resolves.toContain(
+      'User downranked memory from Web control console'
+    )
+    await expect(readFile(join(cwd, '.cyrene', 'memory', 'index.jsonl'), 'utf8')).resolves.toContain('"id":"memory-1"')
+  })
+
+  it('strengthens active memory through the guarded control API', async () => {
+    const cwd = await createTempCwd()
+    await seedActiveMemory(cwd, {
+      id: 'memory-1',
+      content: 'Prefer precise implementation plans.'
+    })
+    const server = await startWebServer({
+      cwd,
+      host: '127.0.0.1',
+      port: 0,
+      callModel: async (): Promise<ModelResponse> => ({ content: 'unused', toolCalls: [] })
+    })
+    servers.push(server)
+
+    const strengthenResponse = await fetch(`${server.url}/api/control/memory/memory-1/strengthen`, { method: 'POST' })
+    expect(strengthenResponse.status).toBe(200)
+    const strengthenBody = await strengthenResponse.json() as {
+      ok: true
+      data: { action: string; memory: { scores: { usefulness: number } } }
+    }
+
+    expect(strengthenBody.data.action).toBe('strengthen')
+    expect(strengthenBody.data.memory.scores.usefulness).toBeGreaterThan(0.9)
+    await expect(readFile(join(cwd, '.cyrene', 'memory', 'events.jsonl'), 'utf8')).resolves.toContain(
+      'User strengthened memory from Web control console'
+    )
+    await expect(readFile(join(cwd, '.cyrene', 'memory', 'index.jsonl'), 'utf8')).resolves.toContain('"id":"memory-1"')
+  })
+
+  it('records affect corrections as pending feedback candidates', async () => {
+    const cwd = await createTempCwd()
+    const server = await startWebServer({
+      cwd,
+      host: '127.0.0.1',
+      port: 0,
+      callModel: async (): Promise<ModelResponse> => ({ content: 'unused', toolCalls: [] })
+    })
+    servers.push(server)
+
+    const response = await fetch(`${server.url}/api/control/affect/corrections`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        correction: 'I meant this as a direct implementation request, not a brainstorm.',
+        target: 'strategy'
+      })
+    })
+
+    expect(response.status).toBe(202)
+    const body = await response.json() as { ok: true; data: { candidateId: string } }
+    expect(body.data.candidateId).toEqual(expect.any(String))
+    await expect(readFile(join(cwd, '.cyrene', 'memory', 'pending.jsonl'), 'utf8')).resolves.toContain(
+      'direct implementation request'
+    )
+    await expect(readFile(join(cwd, '.cyrene', 'memory', 'events.jsonl'), 'utf8')).resolves.toContain('"action":"pending"')
+    await expect(readFile(join(cwd, '.cyrene', 'memory', 'index.jsonl'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('approves and applies evolution proposals through guarded control API transitions', async () => {
+    const cwd = await createTempCwd()
+    await mkdir(join(cwd, 'src', 'prompts'), { recursive: true })
+    await writeFile(join(cwd, 'src', 'prompts', 'system.md'), 'You are Cyrene.\n', 'utf8')
+    const procedural = await createEvolutionProposal({
+      cwd,
+      proposal: {
+        type: 'procedural',
+        risk: 'low',
+        sourceRunIds: ['run-1'],
+        evidence: ['User confirmed this workflow.'],
+        summary: 'Remember the workflow.',
+        proposedChange: { content: 'Use eval before evolution.' },
+        evalRunId: 'eval-1',
+        approvalRequired: false,
+        gateReason: 'Eligible low-risk procedural note.',
+        status: 'eligible'
+      },
+      rationale: 'Explicit user evidence.',
+      evalResults: { passed: true }
+    })
+    const prompt = await createEvolutionProposal({
+      cwd,
+      proposal: {
+        type: 'prompt',
+        risk: 'high',
+        sourceRunIds: ['run-2'],
+        evidence: ['User approved a prompt boundary change.'],
+        summary: 'Add guarded prompt instruction.',
+        proposedChange: { file: 'src/prompts/system.md' },
+        evalRunId: 'eval-2',
+        approvalRequired: true,
+        gateReason: 'Prompt proposal requires manual approval.',
+        status: 'approval_required'
+      },
+      rationale: 'Prompt proposals require separate apply.',
+      promptPatchDiff: [
+        'diff --git a/src/prompts/system.md b/src/prompts/system.md',
+        '--- a/src/prompts/system.md',
+        '+++ b/src/prompts/system.md',
+        '@@ -1 +1,3 @@',
+        ' You are Cyrene.',
+        '+',
+        '+Use guarded prompt updates.'
+      ].join('\n'),
+      evalResults: { passed: true }
+    })
+    const unsafePrompt = await createEvolutionProposal({
+      cwd,
+      proposal: {
+        type: 'prompt',
+        risk: 'high',
+        sourceRunIds: ['run-3'],
+        evidence: ['User asked for an unsafe prompt change.'],
+        summary: 'Touch an unsupported file.',
+        proposedChange: { file: '.env' },
+        evalRunId: 'eval-3',
+        approvalRequired: true,
+        gateReason: 'Prompt proposal requires manual approval.',
+        status: 'approval_required'
+      },
+      rationale: 'Unsupported target should be rejected.',
+      promptPatchDiff: [
+        'diff --git a/.env b/.env',
+        '--- a/.env',
+        '+++ b/.env',
+        '@@ -0,0 +1 @@',
+        '+CYRENE_ENABLE_BASH=1'
+      ].join('\n'),
+      evalResults: { passed: true }
+    })
+    const server = await startWebServer({
+      cwd,
+      host: '127.0.0.1',
+      port: 0,
+      callModel: async (): Promise<ModelResponse> => ({ content: 'unused', toolCalls: [] })
+    })
+    servers.push(server)
+
+    const proceduralApprove = await fetch(`${server.url}/api/control/evolution/proposals/${procedural.id}/approve`, {
+      method: 'POST'
+    })
+    expect(proceduralApprove.status).toBe(200)
+    await expect(proceduralApprove.json()).resolves.toEqual({
+      ok: true,
+      data: expect.objectContaining({ approved: true, applied: true, status: 'applied' })
+    })
+
+    const promptApprove = await fetch(`${server.url}/api/control/evolution/proposals/${prompt.id}/approve`, {
+      method: 'POST'
+    })
+    expect(promptApprove.status).toBe(200)
+    await expect(promptApprove.json()).resolves.toEqual({
+      ok: true,
+      data: expect.objectContaining({ approved: true, applied: false, status: 'approved' })
+    })
+    await expect(readFile(join(cwd, 'src', 'prompts', 'system.md'), 'utf8')).resolves.toBe('You are Cyrene.\n')
+
+    const promptApply = await fetch(`${server.url}/api/control/evolution/proposals/${prompt.id}/apply`, {
+      method: 'POST'
+    })
+    expect(promptApply.status).toBe(200)
+    await expect(promptApply.json()).resolves.toEqual({
+      ok: true,
+      data: expect.objectContaining({ applied: true, status: 'applied' })
+    })
+    await expect(readFile(join(cwd, 'src', 'prompts', 'system.md'), 'utf8')).resolves.toContain(
+      'Use guarded prompt updates.'
+    )
+
+    await fetch(`${server.url}/api/control/evolution/proposals/${unsafePrompt.id}/approve`, { method: 'POST' })
+    const unsafeApply = await fetch(`${server.url}/api/control/evolution/proposals/${unsafePrompt.id}/apply`, {
+      method: 'POST'
+    })
+    expect(unsafeApply.status).toBe(422)
+    await expect(unsafeApply.json()).resolves.toEqual({
+      ok: false,
+      error: 'Prompt patch touches unsupported file.',
+      reason: '.env'
+    })
+  })
+
   it('deletes sessions through DELETE /api/sessions/:id', async () => {
     const server = await startServer(async (): Promise<ModelResponse> => ({ content: 'delete answer', toolCalls: [] }))
 
@@ -1541,6 +1927,32 @@ async function createTempCwdWithoutWorkspace(): Promise<string> {
   const cwd = await realpath(await mkdtemp(join(tmpdir(), 'cyrene-web-server-')))
   tempDirs.push(cwd)
   return cwd
+}
+
+async function seedActiveMemory(cwd: string, input: { id: string; content: string }): Promise<void> {
+  await mkdir(join(cwd, '.cyrene', 'memory'), { recursive: true })
+  await writeFile(join(cwd, '.cyrene', 'memory', 'index.jsonl'), `${JSON.stringify({
+    id: input.id,
+    domain: 'procedural',
+    type: 'procedural_rule',
+    strength: 'soft',
+    scope: 'project',
+    status: 'active',
+    content: input.content,
+    normalizedKey: `procedural:${input.id}`,
+    evidence: [{ summary: 'Seeded by test.' }],
+    source: 'user_explicit',
+    scores: {
+      evidenceStrength: 0.9,
+      stability: 0.9,
+      usefulness: 0.9,
+      safety: 0.95,
+      sensitivity: 0.1
+    },
+    createdAt: '2026-05-24T00:00:00.000Z',
+    updatedAt: '2026-05-24T00:00:00.000Z',
+    tags: []
+  })}\n`, 'utf8')
 }
 
 

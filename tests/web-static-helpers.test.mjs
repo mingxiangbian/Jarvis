@@ -29,6 +29,30 @@ describe('web static helpers', () => {
     expect(css).toMatch(/\.message-content\s*\{[\s\S]*?word-break:\s*break-word;/)
   })
 
+  it('uses icon-only controls for dense inspector actions', () => {
+    const inspector = readFileSync(new URL('../src/web/static/inspector.js', import.meta.url), 'utf8')
+    const toolsPanel = readFileSync(new URL('../src/web/static/panels/tools-panel.js', import.meta.url), 'utf8')
+    const memoryPanel = readFileSync(new URL('../src/web/static/panels/memory-panel.js', import.meta.url), 'utf8')
+    const affectPanel = readFileSync(new URL('../src/web/static/panels/affect-panel.js', import.meta.url), 'utf8')
+    const evolutionPanel = readFileSync(new URL('../src/web/static/panels/evolution-panel.js', import.meta.url), 'utf8')
+    const css = readFileSync(new URL('../src/web/static/styles.css', import.meta.url), 'utf8')
+
+    expect(inspector).toContain('renderIconControlButton')
+    expect(inspector).toContain("button.setAttribute('aria-label', label)")
+    expect(toolsPanel).toContain('setIconControlButton')
+    expect(toolsPanel).not.toContain("button.textContent = disabledForCurrentTarget ? 'Enable' : 'Disable'")
+    expect(memoryPanel).toContain('renderIconControlButton')
+    expect(memoryPanel).not.toContain('button.textContent = label')
+    expect(affectPanel).not.toContain('renderIconControlButton')
+    expect(affectPanel).toContain("button.textContent = 'Record correction'")
+    expect(evolutionPanel).toContain('renderIconControlButton')
+    expect(css).toMatch(/\.icon-control-action\s*\{[\s\S]*?width:\s*34px;/)
+    expect(css).toMatch(/\.icon-control-action\s*\{[\s\S]*?align-items:\s*center;/)
+    expect(css).toMatch(/\.icon-control-action\s*\{[\s\S]*?justify-content:\s*center;/)
+    expect(css).toMatch(/\.icon-control-action\s*\{[\s\S]*?line-height:\s*0;/)
+    expect(css).toMatch(/\.control-action-icon\s*\{[\s\S]*?display:\s*block;/)
+  })
+
   it('escapes Markdown preview content while rendering supported blocks', () => {
     const html = renderMarkdownHtml([
       '# <img src=x onerror=alert(1)>',
@@ -159,12 +183,14 @@ describe('web static helpers', () => {
       sessionId: 's1',
       message: 'hello',
       workspaceId: 'project-a',
-      thinkingMode: 'off'
+      thinkingMode: 'off',
+      disabledTools: ['glob']
     })).toEqual({
       sessionId: 's1',
       message: 'hello',
       workspaceId: 'project-a',
-      thinkingMode: 'off'
+      thinkingMode: 'off',
+      disabledTools: ['glob']
     })
     expect(isValidThinkingMode('auto')).toBe(true)
     expect(isValidThinkingMode('on')).toBe(true)

@@ -9,6 +9,7 @@ import {
   listSessions,
   loadSession,
   removeLastSessionMessage,
+  updateSessionDisabledTools,
   updateSessionPinned
 } from '../src/session-store.js'
 
@@ -251,6 +252,36 @@ describe('session store', () => {
       expect.objectContaining({ id: 'pin-me', pinned: false })
     )
     await expect(updateSessionPinned({ cwd, sessionId: 'missing', pinned: true })).resolves.toBeNull()
+  })
+
+  it('stores sorted unique disabled tool names on a session', async () => {
+    const cwd = await createTempCwd()
+    await createSession({
+      cwd,
+      mode: 'web',
+      model: 'test-model',
+      id: 'tool-session'
+    })
+
+    await expect(updateSessionDisabledTools({
+      cwd,
+      sessionId: 'tool-session',
+      disabledTools: ['bash', 'glob', 'bash', '']
+    })).resolves.toEqual(expect.objectContaining({
+      id: 'tool-session',
+      disabledTools: ['bash', 'glob']
+    }))
+    await expect(listSessions(cwd)).resolves.toEqual([
+      expect.objectContaining({
+        id: 'tool-session',
+        disabledTools: ['bash', 'glob']
+      })
+    ])
+    await expect(updateSessionDisabledTools({
+      cwd,
+      sessionId: 'missing',
+      disabledTools: ['bash']
+    })).resolves.toBeNull()
   })
 
   it('treats legacy index entries without pinned as unpinned', async () => {

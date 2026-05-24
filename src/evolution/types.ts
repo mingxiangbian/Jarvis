@@ -30,7 +30,7 @@ export interface EvolutionProposal {
 export interface EvolutionApproval {
   proposalId: string
   status: 'approved' | 'rejected'
-  channel: 'cli'
+  channel: 'cli' | 'web'
   decidedAt: string
   decidedBy: 'local-user'
   evalRunId?: string

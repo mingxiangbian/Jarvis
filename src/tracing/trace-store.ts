@@ -1,4 +1,4 @@
-import { appendFile, mkdir, readdir, realpath, rm, stat, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
 import { join, resolve, sep } from 'node:path'
 import type {
@@ -24,6 +24,34 @@ export interface TraceRunStore {
   appendModelCall(line: TraceModelCallLine): Promise<void>
   appendToolCall(line: TraceToolCallLine): Promise<void>
   finalize(metrics: TraceMetrics, finalText: string): Promise<void>
+}
+
+export interface TraceRunSummary extends TraceMetrics {
+  mode?: TraceInput['mode']
+  sessionId?: string
+  workspaceId?: string
+  userMessage?: {
+    role: 'user'
+    contentLength: number
+  }
+}
+
+export interface TraceRunSummaryDetail {
+  input: Omit<TraceInput, 'userMessage'> & {
+    userMessage: {
+      role: 'user'
+      contentLength: number
+    }
+  }
+  metrics: TraceMetrics
+  modelCalls: TraceModelCallLine[]
+  toolCalls: TraceToolCallLine[]
+  messages: Array<{
+    at: string
+    role: TraceMessageLine['message']['role']
+    contentLength: number
+  }>
+  finalText: string
 }
 
 export async function createTraceRun(input: CreateTraceRunInput): Promise<TraceRunStore> {
@@ -67,6 +95,88 @@ export function assertSafeTraceRunId(runId: string): void {
   }
 }
 
+export async function listTraceRunSummaries(cwd: string, limit = 25): Promise<TraceRunSummary[]> {
+  let entries
+  try {
+    entries = await readdir(tracesDir(cwd), { withFileTypes: true })
+  } catch (error) {
+    if (isFileErrorCode(error, 'ENOENT')) {
+      return []
+    }
+    throw error
+  }
+
+  const candidates = await Promise.all(entries
+    .filter((entry) => entry.isDirectory())
+    .map(async (entry) => {
+      try {
+        assertSafeTraceRunId(entry.name)
+        return {
+          runId: entry.name,
+          mtimeMs: (await stat(join(tracesDir(cwd), entry.name))).mtimeMs
+        }
+      } catch {
+        return null
+      }
+    }))
+
+  const summaries: TraceRunSummary[] = []
+  for (const candidate of candidates
+    .filter((entry): entry is { runId: string; mtimeMs: number } => entry !== null)
+    .sort((left, right) => right.mtimeMs - left.mtimeMs || right.runId.localeCompare(left.runId))
+    .slice(0, Math.max(0, limit))) {
+    const detail = await readTraceRunSummary(cwd, candidate.runId)
+    if (detail !== null) {
+      summaries.push({
+        ...detail.metrics,
+        mode: detail.input.mode,
+        sessionId: detail.input.sessionId,
+        workspaceId: detail.input.workspaceId,
+        userMessage: detail.input.userMessage
+      })
+    }
+  }
+  return summaries
+}
+
+export async function readTraceRunSummary(cwd: string, runId: string): Promise<TraceRunSummaryDetail | null> {
+  assertSafeTraceRunId(runId)
+  const dir = traceRunDir(cwd, runId)
+  try {
+    const [input, metrics, modelCalls, toolCalls, messages, finalText] = await Promise.all([
+      readJson<TraceInput>(join(dir, 'input.json')),
+      readJson<TraceMetrics>(join(dir, 'metrics.json')),
+      readJsonLines<TraceModelCallLine>(join(dir, 'model-calls.jsonl')),
+      readJsonLines<TraceToolCallLine>(join(dir, 'tool-calls.jsonl')),
+      readJsonLines<TraceMessageLine>(join(dir, 'messages.jsonl')),
+      readText(join(dir, 'final.md'))
+    ])
+    return {
+      input: {
+        ...input,
+        userMessage: {
+          role: input.userMessage.role,
+          contentLength: input.userMessage.content.length
+        }
+      },
+      metrics,
+      modelCalls,
+      toolCalls,
+      messages: messages.map((line) => ({
+        at: line.at,
+        role: line.message.role,
+        contentLength: line.message.content.length
+      })),
+      finalText
+    }
+  } catch (error) {
+    if (isFileErrorCode(error, 'ENOENT')) {
+      return null
+    }
+    throw error
+  }
+}
+
 async function ensureTraceDir(cwd: string, dir: string): Promise<void> {
   await mkdir(dir, { recursive: true })
   const [cwdRealPath, dirRealPath] = await Promise.all([
@@ -84,6 +194,33 @@ async function appendJsonLine(path: string, value: unknown): Promise<void> {
 
 async function writeJson(path: string, value: unknown): Promise<void> {
   await writeFile(path, `${JSON.stringify(value, null, 2)}\n`, 'utf8')
+}
+
+async function readJson<T>(path: string): Promise<T> {
+  return JSON.parse(await readFile(path, 'utf8')) as T
+}
+
+async function readJsonLines<T>(path: string): Promise<T[]> {
+  const content = await readFile(path, 'utf8').catch((error: unknown) => {
+    if (isFileErrorCode(error, 'ENOENT')) {
+      return ''
+    }
+    throw error
+  })
+  return content
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as T)
+}
+
+async function readText(path: string): Promise<string> {
+  return readFile(path, 'utf8').catch((error: unknown) => {
+    if (isFileErrorCode(error, 'ENOENT')) {
+      return ''
+    }
+    throw error
+  })
 }
 
 async function pruneTraceRuns(cwd: string, currentRunId: string): Promise<void> {
@@ -117,4 +254,8 @@ async function pruneTraceRuns(cwd: string, currentRunId: string): Promise<void> 
       rm(join(root, candidate.name), { recursive: true, force: true })
     )
   )
+}
+
+function isFileErrorCode(error: unknown, code: string): boolean {
+  return error instanceof Error && 'code' in error && error.code === code
 }

@@ -6,7 +6,8 @@ import {
   createEvolutionProposal,
   decideEvolutionProposal,
   listEvolutionProposals,
-  readEvolutionProposal
+  readEvolutionProposal,
+  updateEvolutionProposalStatus
 } from '../src/evolution/proposal-store.js'
 
 const tempDirs: string[] = []
@@ -50,6 +51,41 @@ describe('evolution proposal store', () => {
     await expect(readFile(join(cwd, '.cyrene', 'proposals', proposal.id, 'approval.json'), 'utf8')).resolves.toContain(
       '"status": "approved"'
     )
+  })
+
+  it('records Web approvals and updates proposal status', async () => {
+    const cwd = await createTempDir()
+    const proposal = await createEvolutionProposal({
+      cwd,
+      proposal: {
+        type: 'procedural',
+        risk: 'low',
+        sourceRunIds: ['run-1'],
+        evidence: ['User confirmed a durable workflow.'],
+        summary: 'Remember the workflow.',
+        proposedChange: { content: 'Use eval before evolution.' },
+        evalRunId: 'eval-1',
+        approvalRequired: false,
+        gateReason: 'Eligible low-risk procedural note.'
+      },
+      rationale: 'The lesson has explicit evidence.'
+    })
+
+    const approval = await decideEvolutionProposal({
+      cwd,
+      proposalId: proposal.id,
+      status: 'approved',
+      channel: 'web'
+    })
+    const updated = await updateEvolutionProposalStatus({
+      cwd,
+      proposalId: proposal.id,
+      status: 'approved'
+    })
+
+    expect(approval.channel).toBe('web')
+    expect(updated.status).toBe('approved')
+    await expect(readEvolutionProposal(cwd, proposal.id)).resolves.toMatchObject({ status: 'approved' })
   })
 
   it('rejects unsafe proposal ids', async () => {

@@ -294,6 +294,106 @@ describe('main CLI', () => {
     }
   }, 15_000)
 
+  it('uses the main worktree local state when Web starts from a linked git worktree without workspace files', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'cyrene-main-linked-worktree-'))
+    const mainRoot = join(root, 'main')
+    const linkedWorktree = join(mainRoot, '.worktrees', 'feature')
+    const repo = process.cwd()
+    await mkdir(join(mainRoot, '.git', 'worktrees', 'feature'), { recursive: true })
+    await mkdir(join(mainRoot, 'workspace'), { recursive: true })
+    await mkdir(join(mainRoot, '.cyrene', 'sessions'), { recursive: true })
+    await mkdir(linkedWorktree, { recursive: true })
+    await writeFile(join(linkedWorktree, '.git'), `gitdir: ${join(mainRoot, '.git', 'worktrees', 'feature')}\n`, 'utf8')
+    await writeFile(
+      join(mainRoot, '.cyrene', 'sessions', 'index.json'),
+      `${JSON.stringify([
+        {
+          id: 'existing-web-session',
+          mode: 'web',
+          title: 'Existing session',
+          preview: 'history should load',
+          createdAt: '2026-05-24T00:00:00.000Z',
+          updatedAt: '2026-05-24T00:00:00.000Z',
+          model: 'test-model',
+          pinned: false
+        }
+      ])}\n`,
+      'utf8'
+    )
+
+    const child = spawn(
+      process.execPath,
+      [join(repo, 'node_modules/tsx/dist/cli.mjs'), join(repo, 'src/main.ts'), '--web', '--port', '0'],
+      {
+        cwd: linkedWorktree,
+        env: cliEnv(),
+        stdio: ['ignore', 'pipe', 'pipe']
+      }
+    )
+    const exitPromise = new Promise<void>((resolve) => {
+      child.once('exit', () => resolve())
+    })
+
+    let stdout = ''
+    let stderr = ''
+
+    try {
+      const url = await new Promise<string>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          reject(new Error(`Timed out waiting for Web server output. stdout=${stdout} stderr=${stderr}`))
+        }, 10_000)
+
+        child.stdout.on('data', (chunk: Buffer) => {
+          stdout += chunk.toString('utf8')
+          const match = /cyrene web listening at (http:\/\/127\.0\.0\.1:\d+)/.exec(stdout)
+          if (match !== null) {
+            clearTimeout(timeout)
+            resolve(match[1])
+          }
+        })
+        child.stderr.on('data', (chunk: Buffer) => {
+          stderr += chunk.toString('utf8')
+        })
+        child.on('error', (error) => {
+          clearTimeout(timeout)
+          reject(error)
+        })
+        child.on('exit', (code) => {
+          if (!stdout) {
+            clearTimeout(timeout)
+            reject(new Error(`CLI exited before printing URL with code ${code}. stderr=${stderr}`))
+          }
+        })
+      })
+
+      const [workspaceResponse, sessionsResponse] = await Promise.all([
+        fetch(`${url}/api/workspaces`),
+        fetch(`${url}/api/sessions`)
+      ])
+
+      expect(workspaceResponse.status).toBe(200)
+      await expect(workspaceResponse.json()).resolves.toEqual({
+        workspaces: [{ id: '', label: 'workspace', relativePath: 'workspace' }]
+      })
+      expect(sessionsResponse.status).toBe(200)
+      await expect(sessionsResponse.json()).resolves.toEqual({
+        sessions: [
+          expect.objectContaining({
+            id: 'existing-web-session',
+            title: 'Existing session'
+          })
+        ]
+      })
+      expect(stderr).toBe('')
+    } finally {
+      if (child.exitCode === null && child.signalCode === null) {
+        child.kill()
+      }
+      await exitPromise
+      await rm(root, { recursive: true, force: true })
+    }
+  }, 15_000)
+
   it('appends soul, Rule.md stack, and typed memory to the system prompt', async () => {
     const home = await mkdtemp(join(tmpdir(), 'cyrene-main-home-'))
     const root = join(home, 'workspace', 'project')

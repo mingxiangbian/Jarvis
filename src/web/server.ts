@@ -17,10 +17,22 @@ import {
   listSessions,
   loadSession,
   removeLastSessionMessage,
+  updateSessionDisabledTools,
   updateSessionPinned,
   type SessionIndexItem
 } from '../session-store.js'
 import { createRunRecorder } from '../tracing/run-recorder.js'
+import { createAffectCorrection } from './api/affect.js'
+import {
+  applyEvolutionProposal,
+  approveEvolutionProposal,
+  getEvolutionProposalDetail,
+  getEvolutionProposals,
+  rejectEvolutionProposal
+} from './api/evolution.js'
+import { archiveMemory, downrankMemory, getMemoryDetail, getMemoryList, strengthenMemory } from './api/memory.js'
+import { filterToolsForSession, getTools, patchSessionTools } from './api/tools.js'
+import { getTraceDetail, getTraceList } from './api/traces.js'
 import { buildAgentRuntime } from './prompt-context.js'
 import { createWebObserver, errorEvent, type WebRunEvent } from './web-observer.js'
 import {
@@ -53,6 +65,7 @@ interface RunRecord {
   sessionId: string
   userMessage: ChatMessage
   messages: ChatMessage[]
+  disabledTools?: string[]
   thinkingMode?: ThinkingMode
   modelContext: ModelContextInfo
   events: WebRunEvent[]
@@ -160,6 +173,91 @@ async function routeRequest(
 
   if (request.method === 'POST' && url.pathname === '/api/runs') {
     await createRun(request, response, context)
+    return
+  }
+
+  if (request.method === 'GET' && url.pathname === '/api/control/tools') {
+    await getTools(response, context, url.searchParams.get('sessionId') ?? undefined)
+    return
+  }
+
+  if (request.method === 'GET' && url.pathname === '/api/control/memory') {
+    await getMemoryList(response, context)
+    return
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/control/affect/corrections') {
+    await createAffectCorrection(request, response, context, readRequestBody)
+    return
+  }
+
+  if (request.method === 'GET' && url.pathname === '/api/control/traces') {
+    await getTraceList(response, context)
+    return
+  }
+
+  if (request.method === 'GET' && url.pathname === '/api/control/evolution/proposals') {
+    await getEvolutionProposals(response, context)
+    return
+  }
+
+  const controlEvolutionMatch = /^\/api\/control\/evolution\/proposals\/([^/]+)(?:\/([^/]+))?$/.exec(url.pathname)
+  if (controlEvolutionMatch !== null) {
+    const proposalId = decodeRouteComponent(response, controlEvolutionMatch[1], 'proposal id')
+    if (proposalId === undefined) return
+    const action = controlEvolutionMatch[2]
+    if (request.method === 'GET' && action === undefined) {
+      await getEvolutionProposalDetail(response, context, proposalId)
+      return
+    }
+    if (request.method === 'POST' && action === 'reject') {
+      await rejectEvolutionProposal(response, context, proposalId)
+      return
+    }
+    if (request.method === 'POST' && action === 'approve') {
+      await approveEvolutionProposal(response, context, proposalId)
+      return
+    }
+    if (request.method === 'POST' && action === 'apply') {
+      await applyEvolutionProposal(response, context, proposalId)
+      return
+    }
+  }
+
+  const controlTraceMatch = /^\/api\/control\/traces\/([^/]+)$/.exec(url.pathname)
+  if (request.method === 'GET' && controlTraceMatch !== null) {
+    await getTraceDetail(response, context, controlTraceMatch[1])
+    return
+  }
+
+  const controlMemoryMatch = /^\/api\/control\/memory\/([^/]+)(?:\/([^/]+))?$/.exec(url.pathname)
+  if (controlMemoryMatch !== null) {
+    const memoryId = decodeRouteComponent(response, controlMemoryMatch[1], 'memory id')
+    if (memoryId === undefined) return
+    const action = controlMemoryMatch[2]
+    if (request.method === 'GET' && action === undefined) {
+      await getMemoryDetail(response, context, memoryId)
+      return
+    }
+    if (request.method === 'POST' && action === 'archive') {
+      await archiveMemory(response, context, memoryId)
+      return
+    }
+    if (request.method === 'POST' && action === 'downrank') {
+      await downrankMemory(response, context, memoryId)
+      return
+    }
+    if (request.method === 'POST' && action === 'strengthen') {
+      await strengthenMemory(response, context, memoryId)
+      return
+    }
+  }
+
+  const controlSessionToolsMatch = /^\/api\/control\/sessions\/([^/]+)\/tools$/.exec(url.pathname)
+  if (request.method === 'PATCH' && controlSessionToolsMatch !== null) {
+    const sessionId = decodeSessionId(response, controlSessionToolsMatch[1])
+    if (sessionId === undefined) return
+    await patchSessionTools(request, response, context, sessionId, readRequestBody)
     return
   }
 
@@ -278,6 +376,11 @@ async function createRun(
     thinkingMode: parsed.thinkingMode
   })
   const modelContext = contextInfoForRoute(runRuntime.config, 'chat')
+  const disabledToolsError = validateDisabledTools(parsed.disabledTools, runRuntime.tools.map((tool) => tool.name))
+  if (disabledToolsError !== undefined) {
+    writeJson(response, 422, { error: disabledToolsError })
+    return
+  }
 
   let session: SessionIndexItem
   let messages: ChatMessage[]
@@ -288,7 +391,8 @@ async function createRun(
         mode: 'web',
         model: modelContext.model,
         workspaceId: workspace.id,
-        firstUserMessage: userMessage
+        firstUserMessage: userMessage,
+        disabledTools: parsed.disabledTools
       })
       messages = [userMessage]
     } else {
@@ -310,7 +414,13 @@ async function createRun(
         sessionId: loaded.session.id,
         event: { type: 'message', message: userMessage }
       })
-      session = loaded.session
+      session = parsed.disabledTools === undefined
+        ? loaded.session
+        : await updateSessionDisabledTools({
+            cwd: context.cwd,
+            sessionId: loaded.session.id,
+            disabledTools: parsed.disabledTools
+          }) ?? loaded.session
       messages = [...loaded.modelMessages, userMessage]
     }
   } catch (error) {
@@ -329,6 +439,7 @@ async function createRun(
     sessionId: session.id,
     userMessage,
     messages,
+    ...(session.disabledTools === undefined ? {} : { disabledTools: session.disabledTools }),
     thinkingMode: parsed.thinkingMode,
     modelContext,
     events: [],
@@ -375,12 +486,13 @@ async function runWebAgent(
     emit(record, { type: 'continuity', snapshot: runtime.continuitySnapshot })
     await persistContinuitySnapshot(record.memoryCwd, runtime.continuitySnapshot).catch(() => {})
     modelMessages = [{ role: 'system', content: runtime.systemPrompt }, ...record.messages]
+    const runTools = filterToolsForSession(runtime.tools, record.disabledTools)
     const persistedStartIndex = modelMessages.length
     currentTurnStartIndex = Math.max(1, modelMessages.length - 1)
     const result = await runAgentLoop({
       config: runtime.config,
       runId: record.id,
-      tools: runtime.tools,
+      tools: runTools,
       messages: modelMessages,
       observer: recorder.createObserver(createWebObserver((event) => {
         if (event.type !== 'final') {
@@ -726,6 +838,7 @@ function parseRunRequest(body: unknown): {
   sessionId?: string
   workspaceId?: string
   thinkingMode?: ThinkingMode
+  disabledTools?: string[]
 } | { ok: false; error: string } {
   if (!isObject(body)) {
     return { ok: false, error: 'At least one user message is required.' }
@@ -741,6 +854,11 @@ function parseRunRequest(body: unknown): {
     return thinkingModeResult
   }
   const thinkingMode = thinkingModeResult.thinkingMode
+  const disabledToolsResult = parseDisabledTools(body.disabledTools)
+  if (!disabledToolsResult.ok) {
+    return disabledToolsResult
+  }
+  const disabledTools = disabledToolsResult.disabledTools
 
   if (Object.prototype.hasOwnProperty.call(body, 'messages')) {
     if (!Array.isArray(body.messages)) {
@@ -770,17 +888,41 @@ function parseRunRequest(body: unknown): {
     }
 
     if (typeof body.message === 'string') {
-      return { ok: true, message: { role: 'user', content: body.message }, sessionId, workspaceId, thinkingMode }
+      return { ok: true, message: { role: 'user', content: body.message }, sessionId, workspaceId, thinkingMode, disabledTools }
     }
 
-    return { ok: true, message: { role, content: message.content }, sessionId, workspaceId, thinkingMode }
+    return { ok: true, message: { role, content: message.content }, sessionId, workspaceId, thinkingMode, disabledTools }
   }
 
   if (typeof body.message === 'string') {
-    return { ok: true, message: { role: 'user', content: body.message }, sessionId, workspaceId, thinkingMode }
+    return { ok: true, message: { role: 'user', content: body.message }, sessionId, workspaceId, thinkingMode, disabledTools }
   }
 
   return { ok: false, error: 'At least one user message is required.' }
+}
+
+function parseDisabledTools(value: unknown): (
+  | { ok: true; disabledTools?: string[] }
+  | { ok: false; error: string }
+) {
+  if (value === undefined) {
+    return { ok: true }
+  }
+  if (!Array.isArray(value) || !value.every((tool) => typeof tool === 'string')) {
+    return { ok: false, error: 'disabledTools must be an array of tool names.' }
+  }
+  return { ok: true, disabledTools: Array.from(new Set(value.map((tool) => tool.trim()).filter(Boolean))).sort() }
+}
+
+function validateDisabledTools(disabledTools: string[] | undefined, availableToolNames: string[]): string | undefined {
+  if (disabledTools === undefined) {
+    return undefined
+  }
+  const available = new Set(availableToolNames)
+  const unavailable = disabledTools.find((tool) => !available.has(tool))
+  return unavailable === undefined
+    ? undefined
+    : `Tool is disabled by config and cannot be enabled for this session. Unavailable tool: ${unavailable}`
 }
 
 function parseThinkingModeOverride(value: unknown): { ok: true; thinkingMode?: ThinkingMode } | { ok: false; error: string } {

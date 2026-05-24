@@ -2,7 +2,7 @@ import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { createTraceRun, traceRunDir } from '../src/tracing/trace-store.js'
+import { createTraceRun, listTraceRunSummaries, readTraceRunSummary, traceRunDir } from '../src/tracing/trace-store.js'
 
 const tempDirs: string[] = []
 
@@ -72,6 +72,67 @@ describe('trace-store', () => {
     await expect(readFile(join(dir, 'tool-calls.jsonl'), 'utf8')).resolves.toContain('"toolCallId":"call-1"')
     await expect(readFile(join(dir, 'final.md'), 'utf8')).resolves.toBe('hi')
     await expect(readFile(join(dir, 'metrics.json'), 'utf8')).resolves.toContain('"status": "ok"')
+  })
+
+  it('reads summary-only trace run details', async () => {
+    const cwd = await createTempDir()
+    const store = await createTraceRun({
+      cwd,
+      runId: 'run-1',
+      input: {
+        runId: 'run-1',
+        mode: 'web',
+        cwd,
+        startedAt: '2026-05-23T00:00:00.000Z',
+        userMessage: { role: 'user', content: 'hello' }
+      }
+    })
+    await store.appendMessage({
+      at: '2026-05-23T00:00:01.000Z',
+      message: { role: 'assistant', content: 'hi' }
+    })
+    await store.appendModelCall({
+      callId: 'model-1',
+      at: '2026-05-23T00:00:01.000Z',
+      useCase: 'chat',
+      messageCount: 2,
+      toolCount: 1,
+      durationMs: 5,
+      ok: true
+    })
+    await store.appendToolCall({
+      toolCallId: 'call-1',
+      at: '2026-05-23T00:00:02.000Z',
+      name: 'glob',
+      inputSummary: 'package.json',
+      outputSummary: 'package.json',
+      durationMs: 3,
+      ok: true
+    })
+    await store.finalize({
+      runId: 'run-1',
+      status: 'ok',
+      startedAt: '2026-05-23T00:00:00.000Z',
+      finishedAt: '2026-05-23T00:00:03.000Z',
+      durationMs: 3000,
+      modelCallCount: 1,
+      toolCallCount: 1,
+      errorCount: 0,
+      finalTextLength: 2
+    }, 'hi')
+
+    await expect(listTraceRunSummaries(cwd)).resolves.toEqual([
+      expect.objectContaining({
+        runId: 'run-1',
+        status: 'ok',
+        modelCallCount: 1,
+        toolCallCount: 1
+      })
+    ])
+    const detail = await readTraceRunSummary(cwd, 'run-1')
+    expect(detail?.finalText).toBe('hi')
+    expect(JSON.stringify(detail)).not.toContain('system prompt')
+    expect(JSON.stringify(detail)).not.toContain('raw')
   })
 
   it('rejects unsafe run ids', async () => {

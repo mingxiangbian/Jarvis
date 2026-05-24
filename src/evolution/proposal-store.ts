@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, readdir, readFile, realpath, writeFile } from 'node:fs/promises'
 import { join, resolve, sep } from 'node:path'
-import type { CreateEvolutionProposalInput, EvolutionApproval, EvolutionProposal } from './types.js'
+import type { CreateEvolutionProposalInput, EvolutionApproval, EvolutionProposal, EvolutionProposalStatus } from './types.js'
 
 export interface CreateStoredEvolutionProposalInput {
   cwd: string
@@ -15,9 +15,22 @@ export interface DecideEvolutionProposalInput {
   cwd: string
   proposalId: string
   status: 'approved' | 'rejected'
-  channel: 'cli'
+  channel: 'cli' | 'web'
   reason?: string
   decidedAt?: string
+}
+
+export interface EvolutionProposalArtifacts {
+  rationale: string
+  promptPatchDiff?: string
+  approval?: EvolutionApproval
+  evalResults?: unknown
+}
+
+export interface UpdateEvolutionProposalStatusInput {
+  cwd: string
+  proposalId: string
+  status: EvolutionProposalStatus
 }
 
 export async function createEvolutionProposal(input: CreateStoredEvolutionProposalInput): Promise<EvolutionProposal> {
@@ -81,6 +94,37 @@ export async function listEvolutionProposals(cwd: string): Promise<EvolutionProp
   return proposals.sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id))
 }
 
+export async function readEvolutionProposalArtifacts(
+  cwd: string,
+  proposalId: string
+): Promise<EvolutionProposalArtifacts> {
+  assertSafeProposalId(proposalId)
+  const dir = proposalDir(cwd, proposalId)
+  return {
+    rationale: (await readFile(join(dir, 'rationale.md'), 'utf8')).trimEnd(),
+    promptPatchDiff: await readOptionalTrimmedFile(join(dir, 'prompt.patch.diff')),
+    approval: await readOptionalJson<EvolutionApproval>(join(dir, 'approval.json')),
+    evalResults: await readOptionalJson<unknown>(join(dir, 'eval-results.json'))
+  }
+}
+
+export async function updateEvolutionProposalStatus(
+  input: UpdateEvolutionProposalStatusInput
+): Promise<EvolutionProposal> {
+  const proposal = await readEvolutionProposal(input.cwd, input.proposalId)
+  const artifacts = await readEvolutionProposalArtifacts(input.cwd, input.proposalId)
+  const updated: EvolutionProposal = {
+    ...proposal,
+    status: input.status
+  }
+  updated.proposalHash = computeProposalHash(updated, {
+    rationale: artifacts.rationale,
+    promptPatchDiff: artifacts.promptPatchDiff
+  })
+  await writeJson(join(proposalDir(input.cwd, proposal.id), 'proposal.json'), updated)
+  return updated
+}
+
 export async function decideEvolutionProposal(input: DecideEvolutionProposalInput): Promise<EvolutionApproval> {
   const proposal = await readEvolutionProposal(input.cwd, input.proposalId)
   await assertProposalHashMatches(input.cwd, proposal)
@@ -105,6 +149,7 @@ export function computeProposalHash(
   const canonical = {
     proposal: {
       ...proposal,
+      status: '',
       proposalHash: ''
     },
     artifacts
@@ -161,6 +206,17 @@ async function assertProposalHashMatches(cwd: string, proposal: EvolutionProposa
 async function readOptionalTrimmedFile(path: string): Promise<string | undefined> {
   try {
     return (await readFile(path, 'utf8')).trimEnd()
+  } catch (error) {
+    if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT') {
+      return undefined
+    }
+    throw error
+  }
+}
+
+async function readOptionalJson<T>(path: string): Promise<T | undefined> {
+  try {
+    return JSON.parse(await readFile(path, 'utf8')) as T
   } catch (error) {
     if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT') {
       return undefined

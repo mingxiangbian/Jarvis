@@ -1,9 +1,10 @@
-export function buildRunRequestBody({ sessionId, message, workspaceId, thinkingMode }) {
+export function buildRunRequestBody({ sessionId, message, workspaceId, thinkingMode, disabledTools }) {
   return {
     sessionId,
     message,
     workspaceId,
-    ...(isValidThinkingMode(thinkingMode) ? { thinkingMode } : {})
+    ...(isValidThinkingMode(thinkingMode) ? { thinkingMode } : {}),
+    ...(Array.isArray(disabledTools) && disabledTools.length > 0 ? { disabledTools } : {})
   }
 }
 

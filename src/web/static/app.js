@@ -12,6 +12,13 @@ import {
   shouldRefreshMarkdownForToolResult,
   thinkingModeButtonLabel
 } from './app-helpers.js'
+import './api-client.js'
+import { registerInspectorPanels, setInspectorDetailMode } from './inspector.js'
+import { renderAffectPanel } from './panels/affect-panel.js'
+import { renderEvolutionPanel } from './panels/evolution-panel.js'
+import { renderMemoryPanel } from './panels/memory-panel.js'
+import { renderToolsPanel } from './panels/tools-panel.js'
+import { renderTracePanel } from './panels/trace-panel.js'
 
 const appShell = document.querySelector('.app-shell')
 const leftResizeHandle = document.querySelector('#leftResizeHandle')
@@ -67,6 +74,7 @@ const state = {
   workspaceError: null,
   markdownError: null,
   tools: [],
+  pendingDisabledTools: [],
   continuity: null,
   resizingLeft: false,
   inspectorTab: 'tools',
@@ -78,6 +86,14 @@ const state = {
   theme: readStoredTheme(),
   runStatus: 'Ready'
 }
+
+const inspectorPanels = registerInspectorPanels({
+  tools: renderToolsPanel,
+  memory: renderMemoryPanel,
+  affect: renderAffectPanel,
+  trace: renderTracePanel,
+  evolution: renderEvolutionPanel
+})
 
 const markdownRequests = {
   files: 0,
@@ -174,6 +190,7 @@ function resetChat() {
   closeSessionMenu(false)
   state.messages = []
   state.tools = []
+  state.pendingDisabledTools = []
   state.continuity = null
   state.contextUsageDetailsVisible = false
   updateChatTitle('Untitled session')
@@ -264,7 +281,8 @@ async function sendPrompt() {
         sessionId: state.sessionId,
         message: content,
         workspaceId: state.workspaceId,
-        thinkingMode: state.thinkingMode
+        thinkingMode: state.thinkingMode,
+        disabledTools: state.sessionId === null ? state.pendingDisabledTools : undefined
       }))
     })
   } catch (error) {
@@ -280,6 +298,7 @@ async function sendPrompt() {
   const { runId, sessionId, modelContext } = await response.json()
   state.activeRunId = runId
   state.sessionId = sessionId
+  state.pendingDisabledTools = []
   updateModelContext(modelContext)
   renderSessionList()
 
@@ -706,6 +725,7 @@ async function loadSession(sessionId) {
   const body = await response.json()
   state.sessionId = body.session.id
   state.messages = Array.isArray(body.messages) ? body.messages : []
+  state.pendingDisabledTools = []
   state.contextUsageDetailsVisible = false
   updateChatLayoutState()
   state.tools = []
@@ -1153,23 +1173,22 @@ function renderInspector() {
   if (!inspectorContent) {
     return
   }
+  setInspectorDetailMode(inspector, appShell, state.inspectorTab === 'trace' || state.inspectorTab === 'evolution', {
+    collapseSidebar: setSidebarCollapsed
+  })
 
   if (state.inspectorTab === 'context') {
     inspectorContent.replaceChildren(renderContextPanel())
     return
   }
 
-  if (state.inspectorTab === 'continuity') {
-    inspectorContent.replaceChildren(renderContinuityPanel())
+  const panelRenderer = inspectorPanels[state.inspectorTab]
+  if (panelRenderer) {
+    inspectorContent.replaceChildren(panelRenderer(state, { renderTool }))
     return
   }
 
-  if (state.tools.length === 0) {
-    inspectorContent.replaceChildren(renderNote('Tool activity will appear after a run starts.'))
-    return
-  }
-
-  inspectorContent.replaceChildren(...state.tools.map(renderTool))
+  inspectorContent.replaceChildren(renderToolsPanel(state, { renderTool }))
 }
 
 function renderContextPanel() {

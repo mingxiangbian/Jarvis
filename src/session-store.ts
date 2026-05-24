@@ -16,6 +16,7 @@ export interface SessionIndexItem {
   updatedAt: string
   model: string
   pinned: boolean
+  disabledTools?: string[]
 }
 
 export type SessionEvent =
@@ -49,6 +50,7 @@ export async function createSession(input: {
   now?: Date
   id?: string
   workspaceId?: string
+  disabledTools?: string[]
 }): Promise<SessionIndexItem> {
   const id = input.id ?? randomUUID()
   assertSafeSessionId(id)
@@ -62,7 +64,10 @@ export async function createSession(input: {
     createdAt: now,
     updatedAt: now,
     model: input.model,
-    pinned: false
+    pinned: false,
+    ...(input.disabledTools === undefined || input.disabledTools.length === 0
+      ? {}
+      : { disabledTools: normalizeDisabledTools(input.disabledTools) })
   }
 
   const existing = await readIndex(input.cwd)
@@ -199,6 +204,27 @@ export async function updateSessionPinned(input: {
   const updated: SessionIndexItem = {
     ...existing,
     pinned: input.pinned
+  }
+  await writeIndex(input.cwd, upsertSession(index, updated))
+  return updated
+}
+
+export async function updateSessionDisabledTools(input: {
+  cwd: string
+  sessionId: string
+  disabledTools: string[]
+}): Promise<SessionIndexItem | null> {
+  assertSafeSessionId(input.sessionId)
+  const index = await readIndex(input.cwd)
+  const existing = index.find((item) => item.id === input.sessionId)
+  if (existing === undefined) {
+    return null
+  }
+
+  const disabledTools = normalizeDisabledTools(input.disabledTools)
+  const updated: SessionIndexItem = {
+    ...existing,
+    ...(disabledTools.length === 0 ? { disabledTools: undefined } : { disabledTools })
   }
   await writeIndex(input.cwd, upsertSession(index, updated))
   return updated
@@ -496,10 +522,18 @@ function compareSessions(left: SessionIndexItem, right: SessionIndexItem): numbe
 }
 
 function normalizeSessionIndexItem(item: SessionIndexItem | LegacySessionIndexItem): SessionIndexItem {
+  const disabledTools = Array.isArray(item.disabledTools)
+    ? normalizeDisabledTools(item.disabledTools)
+    : []
   return {
     ...item,
-    pinned: item.pinned ?? false
+    pinned: item.pinned ?? false,
+    ...(disabledTools.length === 0 ? {} : { disabledTools })
   }
+}
+
+function normalizeDisabledTools(values: string[]): string[] {
+  return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean))).sort()
 }
 
 function sessionsDir(cwd: string): string {
@@ -576,7 +610,9 @@ function isSessionIndexItem(value: unknown): value is LegacySessionIndexItem {
     typeof value.updatedAt === 'string' &&
     typeof value.model === 'string' &&
     (value.workspaceId === undefined || typeof value.workspaceId === 'string') &&
-    (value.pinned === undefined || typeof value.pinned === 'boolean')
+    (value.pinned === undefined || typeof value.pinned === 'boolean') &&
+    (value.disabledTools === undefined ||
+      (Array.isArray(value.disabledTools) && value.disabledTools.every((tool) => typeof tool === 'string')))
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

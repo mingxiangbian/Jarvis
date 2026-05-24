@@ -14,6 +14,7 @@ import {
   readEvolutionProposal
 } from './evolution/proposal-store.js'
 import { proposeEvolutionFromText } from './evolution/natural-language-proposer.js'
+import { resolveDefaultWebCwd } from './launch-cwd.js'
 import { callModel as defaultCallModel } from './llm-client.js'
 import { migrateLegacyMemory } from './memory/memory-migration.js'
 import { formatMemoryContext, retrieveMemories } from './memory/memory-retriever.js'
@@ -47,8 +48,18 @@ async function main(): Promise<void> {
 
   program.parse()
 
-  const options = program.opts<{ cwd: string; repl?: boolean; resume?: string; web?: boolean; host: string; port: string }>()
+  const parsedOptions = program.opts<{ cwd: string; repl?: boolean; resume?: string; web?: boolean; host: string; port: string }>()
   const launchCwd = process.cwd()
+  const hasExplicitCwd = hasOptionWithValue(process.argv.slice(2), '--cwd')
+  const defaultWebCwd =
+    parsedOptions.web === true && !hasExplicitCwd
+      ? resolveDefaultWebCwd(launchCwd)
+      : parsedOptions.cwd
+  const options = { ...parsedOptions, cwd: defaultWebCwd }
+  const runtimeMemoryCwd =
+    parsedOptions.web === true && !hasExplicitCwd
+      ? defaultWebCwd
+      : launchCwd
   if (program.args[0] === 'config') {
     if (program.args.length !== 2 || program.args[1] !== 'doctor') {
       console.error('Usage: cyrene config doctor')
@@ -104,7 +115,7 @@ async function main(): Promise<void> {
   }
 
   const { config, systemPrompt, tools, continuitySnapshot } = await buildAgentRuntime(options.cwd, new Date(), {
-    memoryCwd: launchCwd,
+    memoryCwd: runtimeMemoryCwd,
     memoryQuery: prompt,
     memoryTask: prompt ? 'coding' : 'conversation'
   })
@@ -387,6 +398,10 @@ function parseReason(args: string[]): string | undefined {
   if (index < 0) return undefined
   const reason = args[index + 1]
   return reason === undefined || reason.trim() === '' ? undefined : reason
+}
+
+function hasOptionWithValue(args: string[], option: string): boolean {
+  return args.some((arg, index) => arg === option || arg.startsWith(`${option}=`) || (index > 0 && args[index - 1] === option))
 }
 
 function isLocalCommandArgv(args: string[], commands: Set<string>): boolean {
