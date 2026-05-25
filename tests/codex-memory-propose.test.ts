@@ -46,6 +46,34 @@ describe('Codex memory propose', () => {
     await expect(readFile(join(result.memoryRoot, 'index.jsonl'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
+  it('returns review metadata for pending candidates', async () => {
+    const home = await createTempDir('cyrene-codex-propose-home-')
+    vi.stubEnv('HOME', home)
+    const cwd = await createTempDir('cyrene-codex-propose-project-')
+    const content = 'Codex pending memory review needs metadata.'
+    const summary = 'User asked for review metadata.'
+
+    const result = await proposeCodexMemoryCandidate({
+      cwd,
+      candidate: {
+        domain: 'project',
+        type: 'project_fact',
+        content,
+        source: 'user_explicit',
+        evidence: [{ runId: 'run-review', summary }]
+      }
+    })
+
+    if (result.result.action !== 'pending') {
+      throw new Error(`Expected pending result, got ${result.result.action}`)
+    }
+    expect(result.result.review).toBeDefined()
+    expect(result.result.review.id).toBe(result.result.candidateId)
+    expect(result.result.review.content).toBe(content)
+    expect(result.result.review.evidenceSummary).toEqual([summary])
+    expect(result.result.review.reviewHash).toMatch(/^[a-f0-9]{64}$/)
+  })
+
   it('rejects candidates without evidence', async () => {
     const home = await createTempDir('cyrene-codex-propose-home-')
     vi.stubEnv('HOME', home)

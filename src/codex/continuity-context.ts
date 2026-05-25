@@ -4,7 +4,9 @@ import { createDefaultConfig } from '../config.js'
 import { retrieveMemories } from '../memory/memory-retriever.js'
 import type { RetrieveMemoriesInput } from '../memory/memory-retriever.js'
 import { codexProjectMemoryRoot } from './codex-memory-root.js'
+import { getCodexPendingReviewNotice } from './memory-review.js'
 import { identifyCodexProject } from './project-id.js'
+import type { CodexPendingReviewNotice } from './memory-review.js'
 
 type CodexContinuityTask = NonNullable<RetrieveMemoriesInput['task']>
 
@@ -22,6 +24,7 @@ export interface CodexContinuityContext {
       content: string
     }>
   }
+  pendingReview: CodexPendingReviewNotice
   strategy: {
     tone: string
     verbosity: string
@@ -43,15 +46,18 @@ export async function getCodexContinuityContext(input: {
   const project = await identifyCodexProject(input.cwd)
   const config = createDefaultConfig(input.cwd)
   const task = input.task ?? 'coding'
-  const memories = await retrieveMemories({
-    cwd: input.cwd,
-    userCyreneDir: config.userCyreneDir,
-    memoryRoot: codexProjectMemoryRoot(project.projectId),
-    query: input.userMessage,
-    task,
-    maxItems: 8,
-    maxTokens: 1200
-  })
+  const [memories, pendingReview] = await Promise.all([
+    retrieveMemories({
+      cwd: input.cwd,
+      userCyreneDir: config.userCyreneDir,
+      memoryRoot: codexProjectMemoryRoot(project.projectId),
+      query: input.userMessage,
+      task,
+      maxItems: 8,
+      maxTokens: 1200
+    }),
+    getCodexPendingReviewNotice({ cwd: input.cwd })
+  ])
   const snapshot = await buildContinuitySnapshot({
     config: {
       ...config,
@@ -77,6 +83,7 @@ export async function getCodexContinuityContext(input: {
         content: memory.content
       }))
     },
+    pendingReview,
     strategy: {
       tone: snapshot.strategy.tone,
       verbosity: snapshot.strategy.verbosity,

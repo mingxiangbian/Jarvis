@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { codexProjectMemoryRoot } from '../src/codex/codex-memory-root.js'
 import { getCodexContinuityContext } from '../src/codex/continuity-context.js'
 import { identifyCodexProject } from '../src/codex/project-id.js'
-import type { CyreneMemory } from '../src/memory/types.js'
+import type { CyreneMemory, PendingMemory } from '../src/memory/types.js'
 
 const execFileAsync = promisify(execFile)
 const originalHome = process.env.HOME
@@ -77,6 +77,31 @@ describe('Codex continuity context', () => {
     expect(context.strategy.tone).toBeDefined()
     expect(context.dissent.mode).toBeDefined()
   })
+
+  it('returns pending review notice without exposing pending content as active memory', async () => {
+    const home = await createTempDir('cyrene-codex-continuity-pending-home-')
+    process.env.HOME = home
+    const repo = await createTempDir('cyrene-codex-continuity-pending-repo-')
+    const identity = await identifyCodexProject(repo)
+    const memoryRoot = codexProjectMemoryRoot(identity.projectId)
+    const pending = createPendingMemory()
+    await mkdir(memoryRoot, { recursive: true })
+    await writeFile(join(memoryRoot, 'pending.jsonl'), JSON.stringify(pending) + '\n')
+
+    const context = await getCodexContinuityContext({
+      cwd: repo,
+      userMessage: 'Review pending memory.',
+      task: 'memory'
+    })
+
+    expect(context.pendingReview).toEqual({
+      count: 1,
+      hasItems: true,
+      newestCandidateId: pending.id,
+      newestPreview: pending.content
+    })
+    expect(context.memory.items).toEqual([])
+  })
 })
 
 function createMemory(): CyreneMemory {
@@ -100,6 +125,33 @@ function createMemory(): CyreneMemory {
     },
     createdAt: '2026-05-25T00:00:00.000Z',
     updatedAt: '2026-05-25T00:00:00.000Z',
+    tags: ['codex']
+  }
+}
+
+function createPendingMemory(): PendingMemory {
+  return {
+    id: 'pending-1',
+    domain: 'project',
+    type: 'project_fact',
+    strength: 'soft',
+    scope: 'project',
+    status: 'pending',
+    content: 'Pending memory content must not appear as active continuity memory.',
+    normalizedKey: 'pending-memory-not-active',
+    evidence: [{ runId: 'run-pending', summary: 'Pending review notice test.' }],
+    source: 'assistant_observed',
+    scores: {
+      evidenceStrength: 0.8,
+      stability: 0.7,
+      usefulness: 0.7,
+      safety: 0.9,
+      sensitivity: 0.2
+    },
+    seenCount: 1,
+    firstSeenAt: '2026-05-25T00:00:00.000Z',
+    lastSeenAt: '2026-05-25T00:00:00.000Z',
+    expiresAt: '2026-06-24T00:00:00.000Z',
     tags: ['codex']
   }
 }

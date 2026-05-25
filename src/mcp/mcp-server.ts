@@ -2,6 +2,15 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { continuityGetInputSchema, handleContinuityGet } from './tools/continuity-get.js'
 import { handleMemoryPropose, memoryProposeInputSchema } from './tools/memory-propose.js'
+import {
+  handleMemoryPendingGet,
+  handleMemoryPendingList,
+  handleMemoryPromote,
+  handleMemoryReject,
+  memoryPendingGetInputSchema,
+  memoryPendingListInputSchema,
+  memoryReviewDecisionInputSchema
+} from './tools/memory-review.js'
 import { handleProjectIdentify, projectIdentifyInputSchema } from './tools/project-identify.js'
 
 export function createCyreneMcpServer(options: { cwd: string }): McpServer {
@@ -35,6 +44,42 @@ export function createCyreneMcpServer(options: { cwd: string }): McpServer {
       inputSchema: memoryProposeInputSchema
     },
     async (input) => handleMemoryPropose(input, options.cwd)
+  )
+
+  server.registerTool(
+    'cyrene_memory_pending_list',
+    {
+      description: 'List Cyrene memory candidates awaiting Codex review.',
+      inputSchema: memoryPendingListInputSchema
+    },
+    async (input) => handleMemoryPendingList(input, options.cwd)
+  )
+
+  server.registerTool(
+    'cyrene_memory_pending_get',
+    {
+      description: 'Get one pending Cyrene memory candidate for Codex review.',
+      inputSchema: memoryPendingGetInputSchema
+    },
+    async (input) => handleMemoryPendingGet(input, options.cwd)
+  )
+
+  server.registerTool(
+    'cyrene_memory_promote',
+    {
+      description: 'Promote a pending Cyrene memory candidate after hash-checked Codex review.',
+      inputSchema: memoryReviewDecisionInputSchema
+    },
+    async (input) => handleMemoryPromote(input, options.cwd)
+  )
+
+  server.registerTool(
+    'cyrene_memory_reject',
+    {
+      description: 'Reject a pending Cyrene memory candidate after hash-checked Codex review.',
+      inputSchema: memoryReviewDecisionInputSchema
+    },
+    async (input) => handleMemoryReject(input, options.cwd)
   )
 
   return server

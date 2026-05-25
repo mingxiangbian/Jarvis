@@ -7,6 +7,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { jsonText } from '../src/mcp/mcp-json.js'
 import { createCyreneMcpServer } from '../src/mcp/mcp-server.js'
 import { handleMemoryPropose } from '../src/mcp/tools/memory-propose.js'
+import {
+  handleMemoryPendingGet,
+  handleMemoryPendingList,
+  handleMemoryPromote,
+  handleMemoryReject
+} from '../src/mcp/tools/memory-review.js'
 
 const execFileAsync = promisify(execFile)
 const originalHome = process.env.HOME
@@ -67,6 +73,46 @@ describe('Cyrene MCP server', () => {
 
     expect(result.content[0]?.type).toBe('text')
     expect(result.content[0]?.text).toContain('"action": "pending"')
+  })
+
+  it('handles pending memory review MCP actions', async () => {
+    const home = await createTempDir('cyrene-mcp-memory-review-home-')
+    vi.stubEnv('HOME', home)
+    const cwd = await createTempDir('cyrene-mcp-memory-review-project-')
+
+    const proposed = await handleMemoryPropose(
+      {
+        cwd,
+        candidate: {
+          domain: 'project',
+          type: 'project_fact',
+          content: 'Pending memory review tools are exposed through MCP.',
+          evidence: [{ runId: 'mcp-review-run-1', summary: 'MCP review test.' }]
+        }
+      },
+      process.cwd()
+    )
+    const proposedJson = JSON.parse(proposed.content[0]?.text ?? '{}')
+    const candidateId = proposedJson.result.candidateId
+    const reviewHash = proposedJson.result.review.reviewHash
+
+    const listJson = JSON.parse((await handleMemoryPendingList({ cwd }, process.cwd())).content[0]?.text ?? '{}')
+    expect(listJson.total).toBe(1)
+
+    const getJson = JSON.parse((await handleMemoryPendingGet({ cwd, id: candidateId }, process.cwd())).content[0]?.text ?? '{}')
+    expect(getJson.result.action).toBe('get')
+
+    const rejectJson = JSON.parse(
+      (await handleMemoryReject({ cwd, id: candidateId, reviewHash, reason: 'Covered by MCP test.' }, process.cwd()))
+        .content[0]?.text ?? '{}'
+    )
+    expect(rejectJson.result.action).toBe('reject')
+
+    const promoteJson = JSON.parse(
+      (await handleMemoryPromote({ cwd, id: candidateId, reviewHash, reason: 'Covered by MCP test.' }, process.cwd()))
+        .content[0]?.text ?? '{}'
+    )
+    expect(promoteJson.result.action).toBe('not_found')
   })
 
   it('accepts mcp-server as a local CLI command without treating it as a prompt', async () => {

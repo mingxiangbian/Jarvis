@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { ensureCodexProjectMemoryRoot } from './codex-memory-root.js'
+import { summarizePendingMemory } from './memory-review.js'
 import { identifyCodexProject } from './project-id.js'
 import {
   appendMemoryEventFromRoot,
@@ -19,6 +20,7 @@ import type {
   MemoryType,
   PendingMemory
 } from '../memory/types.js'
+import type { CodexPendingMemorySummary } from './memory-review.js'
 
 export interface CodexMemoryCandidateInput {
   domain: MemoryDomain
@@ -44,6 +46,7 @@ export interface CodexMemoryProposeResult {
         action: 'pending'
         candidateId: string
         reason: string
+        review: CodexPendingMemorySummary
       }
     | {
         action: 'reject'
@@ -111,7 +114,7 @@ export async function proposeCodexMemoryCandidate(input: {
 
   return {
     project: { projectId: project.projectId, displayName: project.displayName },
-    result: { action: 'pending', candidateId: merged.id, reason },
+    result: { action: 'pending', candidateId: merged.id, reason, review: summarizePendingMemory(merged) },
     memoryRoot
   }
 }
