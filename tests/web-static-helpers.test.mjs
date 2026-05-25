@@ -53,6 +53,23 @@ describe('web static helpers', () => {
     expect(css).toMatch(/\.control-action-icon\s*\{[\s\S]*?display:\s*block;/)
   })
 
+  it('keeps the empty state avatar-only and removes default trace/evolution UI tabs', () => {
+    const html = readFileSync(new URL('../src/web/static/index.html', import.meta.url), 'utf8')
+    const app = readFileSync(new URL('../src/web/static/app.js', import.meta.url), 'utf8')
+
+    expect(html).toContain('class="empty-avatar"')
+    expect(html).not.toContain('Ask Cyrene to work through a local task.')
+    expect(html).not.toContain('Run status and tool activity will stream here as the agent responds.')
+    expect(html).not.toContain('data-tab="trace"')
+    expect(html).not.toContain('data-tab="evolution"')
+    expect(app).not.toContain("import { renderTracePanel }")
+    expect(app).not.toContain("import { renderEvolutionPanel }")
+    expect(app).not.toContain('trace: renderTracePanel')
+    expect(app).not.toContain('evolution: renderEvolutionPanel')
+    expect(app).not.toContain('<h3>Ask Cyrene to work through a local task.</h3>')
+    expect(app).not.toContain('<p>Run status and tool activity will stream here as the agent responds.</p>')
+  })
+
   it('escapes Markdown preview content while rendering supported blocks', () => {
     const html = renderMarkdownHtml([
       '# <img src=x onerror=alert(1)>',

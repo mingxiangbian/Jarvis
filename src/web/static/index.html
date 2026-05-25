@@ -12,7 +12,7 @@
     <div class="prism-light"></div>
 
     <main class="app-shell" aria-label="Cyrene">
-      <aside id="sidebar" class="sidebar glass-panel" aria-label="Workspace">
+      <aside id="sidebar" class="sidebar glass-panel" aria-label="Cyrene navigation">
         <div class="sidebar-full">
           <div class="brand-row">
             <div class="brand">
@@ -33,13 +33,9 @@
             <div id="sessionHistory" class="session-history" aria-label="Session history"></div>
           </div>
 
-          <section id="workspacePanel" class="workspace-panel" aria-label="Workspace">
-            <button id="workspaceChangeButton" class="workspace-change-button" type="button" aria-label="Select workspace" aria-expanded="false" aria-controls="workspacePicker"></button>
-            <div id="workspacePicker" class="workspace-picker" hidden></div>
-          </section>
         </div>
 
-        <div id="sidebarRail" class="sidebar-rail" aria-label="Collapsed workspace">
+        <div id="sidebarRail" class="sidebar-rail" aria-label="Collapsed navigation">
           <button id="railSidebarToggle" class="rail-button rail-avatar-button" type="button" aria-label="Expand sidebar" aria-expanded="false" title="Expand sidebar">
             <img class="rail-avatar-image" src="/static/assets/cyrene-cartoon-avatar.png" alt="" decoding="async">
           </button>
@@ -73,8 +69,6 @@
             <div class="empty-avatar" aria-hidden="true">
               <img class="empty-avatar-image" src="/static/assets/cyrene-cartoon-avatar.png" alt="" decoding="async">
             </div>
-            <h3>Ask Cyrene to work through a local task.</h3>
-            <p>Run status and tool activity will stream here as the agent responds.</p>
           </div>
         </section>
 
@@ -110,8 +104,6 @@
           <button class="tab is-active" type="button" data-tab="tools">Tools</button>
           <button class="tab" type="button" data-tab="memory">Memory</button>
           <button class="tab" type="button" data-tab="affect">Affect</button>
-          <button class="tab" type="button" data-tab="trace">Trace</button>
-          <button class="tab" type="button" data-tab="evolution">Evolution</button>
         </div>
 
         <section id="inspectorContent" class="inspector-content" aria-live="polite">

@@ -121,7 +121,7 @@ Expected: exit code `0`.
 - Modify: `src/web/static/app.js`
 - Modify: `src/web/static/styles.css`
 
-- [ ] **Step 1: Write failing static HTML tests**
+- [x] **Step 1: Write failing static HTML tests**
 
 In `tests/web-server.test.ts`, update the `serves the static shell from GET /` assertions:
 
@@ -144,7 +144,7 @@ expect(body).toContain('send-button-icon')
 expect(body).not.toContain('>Send</button>')
 ```
 
-- [ ] **Step 2: Write failing static JS/CSS contract tests**
+- [x] **Step 2: Write failing static JS/CSS contract tests**
 
 In `tests/web-static-helpers.test.mjs`, add:
 
@@ -178,7 +178,7 @@ it('keeps send icon readable in light and dark mode', () => {
 })
 ```
 
-- [ ] **Step 3: Verify RED**
+- [x] **Step 3: Verify RED**
 
 Run:
 
@@ -188,7 +188,7 @@ npm test -- tests/web-server.test.ts tests/web-static-helpers.test.mjs tests/web
 
 Expected: FAIL because the current UI still renders workspace selector, empty-state copy, Trace/Evolution tabs, and old send icon color contract.
 
-- [ ] **Step 4: Implement minimal UI changes**
+- [x] **Step 4: Implement minimal UI changes**
 
 In `src/web/static/index.html`:
 
@@ -295,7 +295,7 @@ Use:
 }
 ```
 
-- [ ] **Step 5: Verify GREEN**
+- [x] **Step 5: Verify GREEN**
 
 Run:
 
@@ -305,7 +305,7 @@ npm test -- tests/web-server.test.ts tests/web-static-helpers.test.mjs tests/web
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit UI follow-up**
+- [x] **Step 6: Commit UI follow-up**
 
 Run:
 

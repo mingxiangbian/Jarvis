@@ -24,11 +24,19 @@ describe('Phase 8A soft UI shell CSS contract', () => {
   it('makes high-frequency controls tactile without increasing the accent footprint', () => {
     expect(css).toMatch(/\.send-button\s*\{[\s\S]*?background:\s*linear-gradient\([^;]*var\(--accent-primary\)/)
     expect(css).toMatch(/\.send-button\s*\{[\s\S]*?width:\s*44px;/)
-    expect(css).toMatch(/\.send-button-icon\s*\{[\s\S]*?font-size:\s*18px;/)
+    expect(css).toMatch(/\.send-button-icon\s*\{[\s\S]*?width:\s*18px;/)
+    expect(css).toMatch(/\.send-button-icon\s*\{[\s\S]*?height:\s*18px;/)
     expect(css).toMatch(/\.composer\s*\{[\s\S]*?box-shadow:\s*var\(--surface-inset\),\s*var\(--soft-highlight\);/)
     expect(css).toMatch(/\.context-usage-button\s*\{[\s\S]*?box-shadow:\s*var\(--surface-raised-subtle\);/)
     expect(css).toMatch(/\.icon-button:active,\s*\n\.send-button:active,\s*\n\.tab:active[\s\S]*?box-shadow:\s*var\(--surface-pressed\);/)
     expect(css).toMatch(/\.control-action\.danger\s*\{[\s\S]*?background:\s*linear-gradient/)
+  })
+
+  it('keeps send icon readable in light and dark mode', () => {
+    expect(css).toMatch(/--send-icon:\s*#243044;/)
+    expect(css).toMatch(/\.send-button\s*\{[\s\S]*?color:\s*var\(--send-icon\);/)
+    expect(css).toMatch(/body\.theme-dark\s*\{[\s\S]*?--send-icon:\s*#f7fbff;/)
+    expect(css).toMatch(/\.send-button-icon\s*\{[\s\S]*?stroke-width:\s*2;/)
   })
 
   it('uses soft raised cards for dense inspector information', () => {
