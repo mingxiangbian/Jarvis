@@ -19,7 +19,7 @@ export async function readActiveMemories(cwd: string): Promise<CyreneMemory[]> {
 
 export async function writeActiveMemories(cwd: string, memories: CyreneMemory[]): Promise<void> {
   const root = await ensureMemoryRoot(cwd)
-  await writeJsonLinesAtomic(join(root, INDEX_FILE), memories.filter((memory) => memory.status === 'active'))
+  await writeActiveMemoriesFromRoot(root, memories)
 }
 
 export async function readPendingMemories(cwd: string): Promise<PendingMemory[]> {
@@ -36,6 +36,11 @@ export async function readActiveMemoriesFromRoot(memoryRoot: string): Promise<Cy
     return []
   }
   return (await readJsonLines<CyreneMemory>(join(memoryRoot, INDEX_FILE))).filter((memory) => memory.status === 'active')
+}
+
+export async function writeActiveMemoriesFromRoot(memoryRoot: string, memories: CyreneMemory[]): Promise<void> {
+  const root = await ensureWritableMemoryRoot(memoryRoot)
+  await writeJsonLinesAtomic(join(root, INDEX_FILE), memories.filter((memory) => memory.status === 'active'))
 }
 
 export async function readPendingMemoriesFromRoot(memoryRoot: string): Promise<PendingMemory[]> {
