@@ -47,6 +47,7 @@ import {
 export interface StartWebServerInput {
   cwd: string
   memoryCwd?: string
+  workspaceCwd?: string
   host: string
   port: number
   callModel?: (input: CallModelInput) => Promise<ModelResponse>
@@ -79,6 +80,7 @@ interface RunRecord {
 interface WebServerContext {
   cwd: string
   memoryCwd: string
+  workspaceCwd: string
   callModel?: (input: CallModelInput) => Promise<ModelResponse>
   runs: Map<string, RunRecord>
   activeRuns: Set<Promise<void>>
@@ -97,6 +99,7 @@ class RequestBodyTooLargeError extends Error {
 
 export async function startWebServer(input: StartWebServerInput): Promise<WebServerHandle> {
   const memoryCwd = input.memoryCwd ?? input.cwd
+  const workspaceCwd = input.workspaceCwd ?? input.cwd
   const runtime = await buildAgentRuntime(input.cwd, new Date(), { memoryCwd })
   const runs = new Map<string, RunRecord>()
   const activeRuns = new Set<Promise<void>>()
@@ -107,6 +110,7 @@ export async function startWebServer(input: StartWebServerInput): Promise<WebSer
       callModel: input.callModel,
       cwd: input.cwd,
       memoryCwd,
+      workspaceCwd,
       runs,
       runtime
     }).catch((error: unknown) => {
@@ -168,6 +172,11 @@ async function routeRequest(
 
   if (request.method === 'GET' && url.pathname.startsWith('/static/')) {
     await serveStaticFile(response, url.pathname.slice('/static/'.length))
+    return
+  }
+
+  if (request.method === 'GET' && url.pathname === '/api/health') {
+    writeJson(response, 200, { ok: true, service: 'cyrene-web' })
     return
   }
 
@@ -365,7 +374,7 @@ async function createRun(
 
   let workspace: WorkspaceInfo
   try {
-    workspace = await resolveWorkspace(context.cwd, parsed.workspaceId)
+    workspace = await resolveWorkspace(context.workspaceCwd, parsed.workspaceId)
   } catch (error) {
     writeJson(response, 400, { error: error instanceof Error ? error.message : String(error) })
     return
@@ -570,7 +579,7 @@ async function appendRunModelMessages(input: {
 
 async function getWorkspaces(response: ServerResponse, context: WebServerContext): Promise<void> {
   try {
-    writeJson(response, 200, { workspaces: await listWorkspaces(context.cwd) })
+    writeJson(response, 200, { workspaces: await listWorkspaces(context.workspaceCwd) })
   } catch (error) {
     writeJson(response, 400, { error: error instanceof Error ? error.message : String(error) })
   }
@@ -582,7 +591,7 @@ async function getWorkspaceMarkdown(
   workspaceId: string
 ): Promise<void> {
   try {
-    const workspace = await resolveWorkspace(context.cwd, workspaceId)
+    const workspace = await resolveWorkspace(context.workspaceCwd, workspaceId)
     writeJson(response, 200, { files: await listMarkdownFiles(workspace) })
   } catch (error) {
     writeJson(response, 400, { error: error instanceof Error ? error.message : String(error) })
@@ -596,7 +605,7 @@ async function getWorkspaceMarkdownFile(
   fileId: string
 ): Promise<void> {
   try {
-    const workspace = await resolveWorkspace(context.cwd, workspaceId)
+    const workspace = await resolveWorkspace(context.workspaceCwd, workspaceId)
     writeJson(response, 200, { file: await readMarkdownFile(workspace, fileId) })
   } catch (error) {
     writeJson(response, 400, { error: error instanceof Error ? error.message : String(error) })
@@ -611,7 +620,7 @@ async function getWorkspaceAsset(
 ): Promise<void> {
   let workspace: WorkspaceInfo
   try {
-    workspace = await resolveWorkspace(context.cwd, workspaceId)
+    workspace = await resolveWorkspace(context.workspaceCwd, workspaceId)
   } catch (error) {
     writeJson(response, 400, { error: error instanceof Error ? error.message : String(error) })
     return

@@ -51,14 +51,15 @@ async function main(): Promise<void> {
   const parsedOptions = program.opts<{ cwd: string; repl?: boolean; resume?: string; web?: boolean; host: string; port: string }>()
   const launchCwd = process.cwd()
   const hasExplicitCwd = hasOptionWithValue(process.argv.slice(2), '--cwd')
-  const defaultWebCwd =
-    parsedOptions.web === true && !hasExplicitCwd
-      ? resolveDefaultWebCwd(launchCwd)
+  const options = {
+    ...parsedOptions,
+    cwd: parsedOptions.web === true && !hasExplicitCwd
+      ? launchCwd
       : parsedOptions.cwd
-  const options = { ...parsedOptions, cwd: defaultWebCwd }
+  }
   const runtimeMemoryCwd =
-    parsedOptions.web === true && !hasExplicitCwd
-      ? defaultWebCwd
+    parsedOptions.web === true
+      ? options.cwd
       : launchCwd
   if (program.args[0] === 'config') {
     if (program.args.length !== 2 || program.args[1] !== 'doctor') {
@@ -121,7 +122,14 @@ async function main(): Promise<void> {
   })
 
   if (options.web) {
-    const server = await startWebServer({ cwd: config.cwd, memoryCwd: config.memoryCwd, host: options.host, port })
+    const workspaceCwd = hasExplicitCwd ? config.cwd : resolveDefaultWebCwd(launchCwd)
+    const server = await startWebServer({
+      cwd: config.cwd,
+      memoryCwd: config.memoryCwd,
+      workspaceCwd,
+      host: options.host,
+      port
+    })
     console.log(`cyrene web listening at ${server.url}`)
     await new Promise(() => {})
     return

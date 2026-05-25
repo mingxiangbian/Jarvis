@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   listMarkdownFiles,
@@ -24,49 +24,51 @@ describe('web workspace helpers', () => {
 
   it('lists workspace root and direct child directories only', async () => {
     const repo = await createTempRepo()
-    await mkdir(join(repo, 'workspace', 'project-a', 'nested'), { recursive: true })
-    await mkdir(join(repo, 'workspace', 'project-b'), { recursive: true })
-    await mkdir(join(repo, 'workspace', 'project..a'), { recursive: true })
-    await writeFile(join(repo, 'workspace', 'note.md'), '# root\n', 'utf8')
+    const rootName = basename(repo)
+    await mkdir(join(repo, 'project-a', 'nested'), { recursive: true })
+    await mkdir(join(repo, 'project-b'), { recursive: true })
+    await mkdir(join(repo, 'project..a'), { recursive: true })
+    await writeFile(join(repo, 'note.md'), '# root\n', 'utf8')
 
     await expect(listWorkspaces(repo)).resolves.toEqual([
-      { id: '', label: 'workspace', relativePath: 'workspace' },
-      { id: 'project-a', label: 'workspace/project-a', relativePath: 'workspace/project-a' },
-      { id: 'project-b', label: 'workspace/project-b', relativePath: 'workspace/project-b' }
+      { id: '', label: rootName, relativePath: '.' },
+      { id: 'project-a', label: `${rootName}/project-a`, relativePath: 'project-a' },
+      { id: 'project-b', label: `${rootName}/project-b`, relativePath: 'project-b' }
     ])
   })
 
-  it('returns a clear error when workspace root is missing', async () => {
+  it('returns a clear error when the workspace boundary is missing', async () => {
     const repo = await createTempRepo()
 
-    await expect(listWorkspaces(repo)).rejects.toThrow('workspace directory does not exist')
+    await expect(listWorkspaces(join(repo, 'missing'))).rejects.toThrow('workspace root does not exist')
   })
 
   it('resolves root and a direct child workspace id', async () => {
     const repo = await createTempRepo()
-    await mkdir(join(repo, 'workspace', 'project-a'), { recursive: true })
+    const rootName = basename(repo)
+    await mkdir(join(repo, 'project-a'), { recursive: true })
 
     await expect(resolveWorkspace(repo, undefined)).resolves.toMatchObject({
       id: '',
-      label: 'workspace',
-      relativePath: 'workspace'
+      label: rootName,
+      relativePath: '.'
     })
     await expect(resolveWorkspace(repo, '')).resolves.toMatchObject({
       id: '',
-      label: 'workspace',
-      relativePath: 'workspace'
+      label: rootName,
+      relativePath: '.'
     })
     await expect(resolveWorkspace(repo, 'project-a')).resolves.toMatchObject({
       id: 'project-a',
-      label: 'workspace/project-a',
-      relativePath: 'workspace/project-a'
+      label: `${rootName}/project-a`,
+      relativePath: 'project-a'
     })
   })
 
   it('rejects invalid workspace ids', async () => {
     const repo = await createTempRepo()
-    await mkdir(join(repo, 'workspace', 'project-a', 'nested'), { recursive: true })
-    await writeFile(join(repo, 'workspace', 'file-workspace'), 'not a directory\n', 'utf8')
+    await mkdir(join(repo, 'project-a', 'nested'), { recursive: true })
+    await writeFile(join(repo, 'file-workspace'), 'not a directory\n', 'utf8')
 
     await expect(resolveWorkspace(repo, '../src')).rejects.toThrow('Invalid workspace id')
     await expect(resolveWorkspace(repo, '/tmp')).rejects.toThrow('Invalid workspace id')
@@ -78,18 +80,17 @@ describe('web workspace helpers', () => {
   it('rejects workspace symlinks that escape workspace root', async () => {
     const repo = await createTempRepo()
     const outside = await createTempRepo()
-    await mkdir(join(repo, 'workspace'), { recursive: true })
-    await symlink(outside, join(repo, 'workspace', 'linked'))
+    await symlink(outside, join(repo, 'linked'))
 
     await expect(resolveWorkspace(repo, 'linked')).rejects.toThrow('outside workspace root')
   })
 
   it('lists only top-level Markdown files in the selected workspace', async () => {
     const repo = await createTempRepo()
-    await mkdir(join(repo, 'workspace', 'project-a', 'nested'), { recursive: true })
-    await writeFile(join(repo, 'workspace', 'project-a', 'README.md'), '# readme\n', 'utf8')
-    await writeFile(join(repo, 'workspace', 'project-a', 'notes.txt'), 'plain\n', 'utf8')
-    await writeFile(join(repo, 'workspace', 'project-a', 'nested', 'deep.md'), '# deep\n', 'utf8')
+    await mkdir(join(repo, 'project-a', 'nested'), { recursive: true })
+    await writeFile(join(repo, 'project-a', 'README.md'), '# readme\n', 'utf8')
+    await writeFile(join(repo, 'project-a', 'notes.txt'), 'plain\n', 'utf8')
+    await writeFile(join(repo, 'project-a', 'nested', 'deep.md'), '# deep\n', 'utf8')
     const workspace = await resolveWorkspace(repo, 'project-a')
 
     await expect(listMarkdownFiles(workspace)).resolves.toEqual([{ id: 'README.md', label: 'README.md' }])
@@ -97,9 +98,9 @@ describe('web workspace helpers', () => {
 
   it('excludes top-level Markdown files with invalid ids', async () => {
     const repo = await createTempRepo()
-    await mkdir(join(repo, 'workspace', 'project-a'), { recursive: true })
-    await writeFile(join(repo, 'workspace', 'project-a', 'README.md'), '# readme\n', 'utf8')
-    await writeFile(join(repo, 'workspace', 'project-a', 'project..a.md'), '# invalid\n', 'utf8')
+    await mkdir(join(repo, 'project-a'), { recursive: true })
+    await writeFile(join(repo, 'project-a', 'README.md'), '# readme\n', 'utf8')
+    await writeFile(join(repo, 'project-a', 'project..a.md'), '# invalid\n', 'utf8')
     const workspace = await resolveWorkspace(repo, 'project-a')
 
     await expect(listMarkdownFiles(workspace)).resolves.toEqual([{ id: 'README.md', label: 'README.md' }])
@@ -107,8 +108,8 @@ describe('web workspace helpers', () => {
 
   it('reads a valid top-level Markdown file from the selected workspace', async () => {
     const repo = await createTempRepo()
-    await mkdir(join(repo, 'workspace', 'project-a'), { recursive: true })
-    await writeFile(join(repo, 'workspace', 'project-a', 'README.md'), '# readme\n', 'utf8')
+    await mkdir(join(repo, 'project-a'), { recursive: true })
+    await writeFile(join(repo, 'project-a', 'README.md'), '# readme\n', 'utf8')
     const workspace = await resolveWorkspace(repo, 'project-a')
 
     await expect(readMarkdownFile(workspace, 'README.md')).resolves.toEqual({
@@ -119,8 +120,8 @@ describe('web workspace helpers', () => {
 
   it('rejects invalid Markdown file ids', async () => {
     const repo = await createTempRepo()
-    await mkdir(join(repo, 'workspace', 'project-a'), { recursive: true })
-    await writeFile(join(repo, 'workspace', 'project-a', 'notes.txt'), 'plain\n', 'utf8')
+    await mkdir(join(repo, 'project-a'), { recursive: true })
+    await writeFile(join(repo, 'project-a', 'notes.txt'), 'plain\n', 'utf8')
     const workspace = await resolveWorkspace(repo, 'project-a')
 
     await expect(readMarkdownFile(workspace, 'notes.txt')).rejects.toThrow('Markdown file id must end with .md')
@@ -133,9 +134,9 @@ describe('web workspace helpers', () => {
   it('rejects Markdown symlinks that escape the active workspace', async () => {
     const repo = await createTempRepo()
     const outside = await createTempRepo()
-    await mkdir(join(repo, 'workspace', 'project-a'), { recursive: true })
+    await mkdir(join(repo, 'project-a'), { recursive: true })
     await writeFile(join(outside, 'outside.md'), '# outside\n', 'utf8')
-    await symlink(join(outside, 'outside.md'), join(repo, 'workspace', 'project-a', 'linked.md'))
+    await symlink(join(outside, 'outside.md'), join(repo, 'project-a', 'linked.md'))
     const workspace = await resolveWorkspace(repo, 'project-a')
 
     await expect(readMarkdownFile(workspace, 'linked.md')).rejects.toThrow('outside active workspace')

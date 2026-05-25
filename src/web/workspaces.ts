@@ -95,23 +95,36 @@ function validateWorkspaceAssetPath(assetPath: string): string {
 }
 
 async function canonicalWorkspaceRoot(repoCwd: string): Promise<string> {
-  const workspaceRoot = resolve(repoCwd, 'workspace')
+  const workspaceRoot = resolve(repoCwd)
   try {
     const stats = await lstat(workspaceRoot)
     if (!stats.isDirectory()) {
-      throw new Error(`workspace directory does not exist: ${workspaceRoot}`)
+      throw new Error(`workspace root does not exist: ${workspaceRoot}`)
     }
     return await realpath(workspaceRoot)
   } catch (error) {
-    if (error instanceof Error && error.message.includes('workspace directory does not exist')) {
+    if (error instanceof Error && error.message.includes('workspace root does not exist')) {
       throw error
     }
-    throw new Error(`workspace directory does not exist: ${workspaceRoot}`)
+    throw new Error(`workspace root does not exist: ${workspaceRoot}`)
   }
+}
+
+function workspaceRootLabel(canonicalRoot: string): string {
+  return basename(canonicalRoot) || canonicalRoot
+}
+
+function workspaceDisplayPath(rootLabel: string, workspaceId: string): string {
+  return workspaceId === '' ? rootLabel : `${rootLabel}/${workspaceId}`
+}
+
+function workspaceRelativePath(workspaceId: string): string {
+  return workspaceId === '' ? '.' : workspaceId
 }
 
 export async function resolveWorkspace(repoCwd: string, workspaceId?: string): Promise<WorkspaceInfo> {
   const canonicalRoot = await canonicalWorkspaceRoot(repoCwd)
+  const rootLabel = workspaceRootLabel(canonicalRoot)
   const id = validateWorkspaceId(workspaceId)
   const candidate = id === '' ? canonicalRoot : resolve(canonicalRoot, id)
 
@@ -119,7 +132,7 @@ export async function resolveWorkspace(repoCwd: string, workspaceId?: string): P
   try {
     canonicalWorkspace = await realpath(candidate)
   } catch {
-    throw new Error(`Workspace does not exist: ${id || 'workspace'}`)
+    throw new Error(`Workspace does not exist: ${id || rootLabel}`)
   }
 
   if (!isInside(canonicalRoot, canonicalWorkspace)) {
@@ -133,13 +146,14 @@ export async function resolveWorkspace(repoCwd: string, workspaceId?: string): P
 
   const stats = await lstat(candidate)
   if (!stats.isDirectory()) {
-    throw new Error(`Workspace is not a directory: ${id || 'workspace'}`)
+    throw new Error(`Workspace is not a directory: ${id || rootLabel}`)
   }
 
+  const displayPath = workspaceDisplayPath(rootLabel, id)
   return {
     id,
-    label: id === '' ? 'workspace' : `workspace/${id}`,
-    relativePath: id === '' ? 'workspace' : `workspace/${id}`,
+    label: displayPath,
+    relativePath: workspaceRelativePath(id),
     absolutePath: canonicalWorkspace
   }
 }
@@ -160,8 +174,8 @@ export async function listWorkspaces(repoCwd: string): Promise<PublicWorkspaceIn
     .map((id) =>
       publicWorkspace({
         id,
-        label: `workspace/${id}`,
-        relativePath: `workspace/${id}`,
+        label: workspaceDisplayPath(root.label, id),
+        relativePath: workspaceRelativePath(id),
         absolutePath: resolve(root.absolutePath, id)
       })
     )

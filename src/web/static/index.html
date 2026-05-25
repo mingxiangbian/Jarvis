@@ -4,6 +4,11 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Cyrene</title>
+    <script>
+      if (new URLSearchParams(window.location.search).get('desktop') === '1' || window.__TAURI_INTERNALS__ || window.__TAURI__) {
+        document.documentElement.classList.add('desktop-shell')
+      }
+    </script>
     <link rel="stylesheet" href="/static/styles.css">
   </head>
   <body>
@@ -11,8 +16,8 @@
     <div class="ambient ambient-cyan"></div>
     <div class="prism-light"></div>
 
-    <main class="app-shell" aria-label="Cyrene">
-      <aside id="sidebar" class="sidebar glass-panel" aria-label="Workspace">
+    <main class="app-shell sidebar-collapsed" aria-label="Cyrene">
+      <aside id="sidebar" class="sidebar glass-panel" aria-label="Cyrene navigation">
         <div class="sidebar-full">
           <div class="brand-row">
             <div class="brand">
@@ -23,7 +28,7 @@
                 <h1>Cyrene</h1>
               </div>
             </div>
-            <button id="sidebarToggle" class="icon-button icon-only" type="button" aria-label="Collapse sidebar" aria-expanded="true" title="Collapse sidebar">
+            <button id="sidebarToggle" class="icon-button icon-only" type="button" aria-label="Expand sidebar" aria-expanded="false" title="Expand sidebar">
               <span aria-hidden="true">‹</span>
             </button>
           </div>
@@ -33,13 +38,9 @@
             <div id="sessionHistory" class="session-history" aria-label="Session history"></div>
           </div>
 
-          <section id="workspacePanel" class="workspace-panel" aria-label="Workspace">
-            <button id="workspaceChangeButton" class="workspace-change-button" type="button" aria-label="Select workspace" aria-expanded="false" aria-controls="workspacePicker"></button>
-            <div id="workspacePicker" class="workspace-picker" hidden></div>
-          </section>
         </div>
 
-        <div id="sidebarRail" class="sidebar-rail" aria-label="Collapsed workspace">
+        <div id="sidebarRail" class="sidebar-rail" aria-label="Collapsed navigation">
           <button id="railSidebarToggle" class="rail-button rail-avatar-button" type="button" aria-label="Expand sidebar" aria-expanded="false" title="Expand sidebar">
             <img class="rail-avatar-image" src="/static/assets/cyrene-cartoon-avatar.png" alt="" decoding="async">
           </button>
@@ -70,17 +71,16 @@
 
         <section id="messages" class="messages" aria-live="polite" aria-label="Messages">
           <div class="empty-state">
-            <div class="empty-orbit" aria-hidden="true"></div>
-            <p class="eyebrow">Ready</p>
-            <h3>Ask Cyrene to work through a local task.</h3>
-            <p>Run status and tool activity will stream here as the agent responds.</p>
+            <div class="empty-avatar" aria-hidden="true">
+              <img class="empty-avatar-image" src="/static/assets/cyrene-cartoon-avatar.png" alt="" decoding="async">
+            </div>
           </div>
         </section>
 
         <form id="composer" class="composer" aria-label="Send message">
           <textarea id="promptInput" name="prompt" rows="1" aria-label="Message"></textarea>
           <div id="thinkModeControl" class="think-mode-control" aria-label="Think mode">
-            <button id="thinkModeButton" class="think-mode-button" type="button" aria-haspopup="menu" aria-expanded="false">Think: Auto</button>
+            <button id="thinkModeButton" class="think-mode-button" type="button" aria-haspopup="menu" aria-expanded="false">Auto</button>
             <div id="thinkModeMenu" class="think-mode-menu" role="menu" hidden>
               <button class="think-mode-option is-active" type="button" role="menuitemradio" data-thinking-mode="auto" aria-checked="true">Auto</button>
               <button class="think-mode-option" type="button" role="menuitemradio" data-thinking-mode="on" aria-checked="false">On</button>
@@ -92,7 +92,7 @@
               <span id="contextUsageValue" class="context-usage-value">0%</span>
             </span>
           </button>
-          <button id="sendButton" class="send-button" type="submit">Send</button>
+          <button id="sendButton" class="send-button" type="submit" aria-label="Send message" title="Send message"><span class="send-button-icon" aria-hidden="true">↑</span></button>
         </form>
       </section>
 
@@ -109,8 +109,6 @@
           <button class="tab is-active" type="button" data-tab="tools">Tools</button>
           <button class="tab" type="button" data-tab="memory">Memory</button>
           <button class="tab" type="button" data-tab="affect">Affect</button>
-          <button class="tab" type="button" data-tab="trace">Trace</button>
-          <button class="tab" type="button" data-tab="evolution">Evolution</button>
         </div>
 
         <section id="inspectorContent" class="inspector-content" aria-live="polite">

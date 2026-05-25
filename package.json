@@ -3,7 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "bin": { "cyrene": "src/main.ts" },
+  "bin": {
+    "cyrene": "src/main.ts"
+  },
   "engines": {
     "node": ">=20",
     "npm": ">=10"
@@ -11,6 +13,9 @@
   "scripts": {
     "setup": "node scripts/setup-local-state.mjs",
     "dev": "tsx src/main.ts",
+    "desktop:web": "tsx src/main.ts --web --host 127.0.0.1",
+    "desktop:dev": "PATH=\"$HOME/.cargo/bin:$PATH\" tauri dev",
+    "launcher:create": "node scripts/create-macos-launcher.mjs",
     "benchmark:tool-calling": "python benchmarks/manual_tool_calling_benchmark.py",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
@@ -22,6 +27,7 @@
     "zod": "^3.24.1"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.11.2",
     "@types/node": "^22.10.5",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",

@@ -53,6 +53,42 @@ describe('web static helpers', () => {
     expect(css).toMatch(/\.control-action-icon\s*\{[\s\S]*?display:\s*block;/)
   })
 
+  it('reloads the memory panel after successful memory actions', () => {
+    const memoryPanel = readFileSync(new URL('../src/web/static/panels/memory-panel.js', import.meta.url), 'utf8')
+
+    expect(memoryPanel).toContain('function loadMemoryList(list)')
+    expect(memoryPanel).toMatch(/apiPost\(path\)\.then\(\(\) => \{\s*return loadMemoryList\(list\)/)
+    expect(memoryPanel).not.toContain("setIconControlButton(button, `${label} completed`, 'done')")
+  })
+
+  it('keeps the empty state avatar-only and removes default trace/evolution UI tabs', () => {
+    const html = readFileSync(new URL('../src/web/static/index.html', import.meta.url), 'utf8')
+    const app = readFileSync(new URL('../src/web/static/app.js', import.meta.url), 'utf8')
+
+    expect(html).toContain('class="empty-avatar"')
+    expect(html).not.toContain('Ask Cyrene to work through a local task.')
+    expect(html).not.toContain('Run status and tool activity will stream here as the agent responds.')
+    expect(html).not.toContain('data-tab="trace"')
+    expect(html).not.toContain('data-tab="evolution"')
+    expect(app).not.toContain("import { renderTracePanel }")
+    expect(app).not.toContain("import { renderEvolutionPanel }")
+    expect(app).not.toContain('trace: renderTracePanel')
+    expect(app).not.toContain('evolution: renderEvolutionPanel')
+    expect(app).not.toContain('<h3>Ask Cyrene to work through a local task.</h3>')
+    expect(app).not.toContain('<p>Run status and tool activity will stream here as the agent responds.</p>')
+  })
+
+  it('starts new chats with the left sidebar collapsed', () => {
+    const html = readFileSync(new URL('../src/web/static/index.html', import.meta.url), 'utf8')
+    const app = readFileSync(new URL('../src/web/static/app.js', import.meta.url), 'utf8')
+
+    expect(html).toContain("document.documentElement.classList.add('desktop-shell')")
+    expect(html).toContain('<main class="app-shell sidebar-collapsed" aria-label="Cyrene">')
+    expect(html).toContain('id="sidebarToggle" class="icon-button icon-only" type="button" aria-label="Expand sidebar" aria-expanded="false" title="Expand sidebar"')
+    expect(app).toContain('sidebarCollapsed: true')
+    expect(app).toContain('setSidebarCollapsed(state.sidebarCollapsed)')
+  })
+
   it('escapes Markdown preview content while rendering supported blocks', () => {
     const html = renderMarkdownHtml([
       '# <img src=x onerror=alert(1)>',
@@ -200,10 +236,10 @@ describe('web static helpers', () => {
     expect(nextThinkingMode('on')).toBe('off')
     expect(nextThinkingMode('off')).toBe('auto')
     expect(nextThinkingMode('enabled')).toBe('auto')
-    expect(thinkingModeButtonLabel('auto')).toBe('Think: Auto')
-    expect(thinkingModeButtonLabel('on')).toBe('Think: On')
-    expect(thinkingModeButtonLabel('off')).toBe('Think: Off')
-    expect(thinkingModeButtonLabel('enabled')).toBe('Think: Auto')
+    expect(thinkingModeButtonLabel('auto')).toBe('Auto')
+    expect(thinkingModeButtonLabel('on')).toBe('On')
+    expect(thinkingModeButtonLabel('off')).toBe('Off')
+    expect(thinkingModeButtonLabel('enabled')).toBe('Auto')
     expect(encodedWorkspaceId('')).toBe('@root')
     expect(encodedWorkspaceId('project a')).toBe('project%20a')
     expect(isWorkspaceLockedState({ isSending: true, activeRun: null })).toBe(true)

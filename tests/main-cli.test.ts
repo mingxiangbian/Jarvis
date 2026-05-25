@@ -43,6 +43,17 @@ function activeMemoryLine(input: { id: string; content: string; normalizedKey: s
 }
 
 describe('main CLI', () => {
+  it('declares desktop Web and Tauri scripts', async () => {
+    const manifest = JSON.parse(await readFile('package.json', 'utf8')) as {
+      scripts: Record<string, string>
+      devDependencies?: Record<string, string>
+    }
+
+    expect(manifest.scripts['desktop:web']).toBe('tsx src/main.ts --web --host 127.0.0.1')
+    expect(manifest.scripts['desktop:dev']).toContain('tauri dev')
+    expect(manifest.devDependencies?.['@tauri-apps/cli']).toBe('^2.11.2')
+  })
+
   it('rejects --web with a prompt', async () => {
     try {
       await execFileAsync(process.execPath, ['node_modules/tsx/dist/cli.mjs', 'src/main.ts', '--web', 'hello'], {
@@ -294,18 +305,35 @@ describe('main CLI', () => {
     }
   }, 15_000)
 
-  it('uses the main worktree local state when Web starts from a linked git worktree without workspace files', async () => {
+  it('uses the launch cwd local state and home workspace when Web starts without explicit cwd', async () => {
     const root = await mkdtemp(join(tmpdir(), 'cyrene-main-linked-worktree-'))
+    const home = join(root, 'home')
     const mainRoot = join(root, 'main')
     const linkedWorktree = join(mainRoot, '.worktrees', 'feature')
     const repo = process.cwd()
+    await mkdir(join(home, 'life'), { recursive: true })
     await mkdir(join(mainRoot, '.git', 'worktrees', 'feature'), { recursive: true })
-    await mkdir(join(mainRoot, 'workspace'), { recursive: true })
     await mkdir(join(mainRoot, '.cyrene', 'sessions'), { recursive: true })
-    await mkdir(linkedWorktree, { recursive: true })
+    await mkdir(join(linkedWorktree, '.cyrene', 'sessions'), { recursive: true })
     await writeFile(join(linkedWorktree, '.git'), `gitdir: ${join(mainRoot, '.git', 'worktrees', 'feature')}\n`, 'utf8')
     await writeFile(
       join(mainRoot, '.cyrene', 'sessions', 'index.json'),
+      `${JSON.stringify([
+        {
+          id: 'main-web-session',
+          mode: 'web',
+          title: 'Main session',
+          preview: 'should not load by default',
+          createdAt: '2026-05-24T00:00:00.000Z',
+          updatedAt: '2026-05-24T00:00:00.000Z',
+          model: 'test-model',
+          pinned: false
+        }
+      ])}\n`,
+      'utf8'
+    )
+    await writeFile(
+      join(linkedWorktree, '.cyrene', 'sessions', 'index.json'),
       `${JSON.stringify([
         {
           id: 'existing-web-session',
@@ -326,7 +354,7 @@ describe('main CLI', () => {
       [join(repo, 'node_modules/tsx/dist/cli.mjs'), join(repo, 'src/main.ts'), '--web', '--port', '0'],
       {
         cwd: linkedWorktree,
-        env: cliEnv(),
+        env: cliEnv({ HOME: home }),
         stdio: ['ignore', 'pipe', 'pipe']
       }
     )
@@ -373,7 +401,10 @@ describe('main CLI', () => {
 
       expect(workspaceResponse.status).toBe(200)
       await expect(workspaceResponse.json()).resolves.toEqual({
-        workspaces: [{ id: '', label: 'workspace', relativePath: 'workspace' }]
+        workspaces: [
+          { id: '', label: 'home', relativePath: '.' },
+          { id: 'life', label: 'home/life', relativePath: 'life' }
+        ]
       })
       expect(sessionsResponse.status).toBe(200)
       await expect(sessionsResponse.json()).resolves.toEqual({

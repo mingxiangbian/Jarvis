@@ -24,12 +24,12 @@ export function nextThinkingMode(value) {
 
 export function thinkingModeButtonLabel(value) {
   if (value === 'on') {
-    return 'Think: On'
+    return 'On'
   }
   if (value === 'off') {
-    return 'Think: Off'
+    return 'Off'
   }
-  return 'Think: Auto'
+  return 'Auto'
 }
 
 export function encodedWorkspaceId(workspaceId) {

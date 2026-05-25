@@ -15,10 +15,8 @@ import {
 import './api-client.js'
 import { registerInspectorPanels, setInspectorDetailMode } from './inspector.js'
 import { renderAffectPanel } from './panels/affect-panel.js'
-import { renderEvolutionPanel } from './panels/evolution-panel.js'
 import { renderMemoryPanel } from './panels/memory-panel.js'
 import { renderToolsPanel } from './panels/tools-panel.js'
-import { renderTracePanel } from './panels/trace-panel.js'
 
 const appShell = document.querySelector('.app-shell')
 const leftResizeHandle = document.querySelector('#leftResizeHandle')
@@ -78,7 +76,7 @@ const state = {
   continuity: null,
   resizingLeft: false,
   inspectorTab: 'tools',
-  sidebarCollapsed: false,
+  sidebarCollapsed: true,
   inspectorOpen: false,
   contextUsageDetailsVisible: false,
   thinkingMode: DEFAULT_MODEL_CONTEXT.thinkingMode,
@@ -90,9 +88,7 @@ const state = {
 const inspectorPanels = registerInspectorPanels({
   tools: renderToolsPanel,
   memory: renderMemoryPanel,
-  affect: renderAffectPanel,
-  trace: renderTracePanel,
-  evolution: renderEvolutionPanel
+  affect: renderAffectPanel
 })
 
 const markdownRequests = {
@@ -103,7 +99,9 @@ const markdownRequests = {
 void loadWorkspaces()
 void loadSessions()
 setTheme(state.theme)
+setSidebarCollapsed(state.sidebarCollapsed)
 renderThinkingModeControl()
+renderSendButton(false)
 updateChatLayoutState()
 updateContextUsageIndicator()
 
@@ -1009,12 +1007,7 @@ function renderEmptyState() {
   messages?.replaceChildren()
   const node = document.createElement('div')
   node.className = 'empty-state'
-  node.innerHTML = [
-    '<div class="empty-orbit" aria-hidden="true"></div>',
-    '<p class="eyebrow">Ready</p>',
-    '<h3>Ask Cyrene to work through a local task.</h3>',
-    '<p>Run status and tool activity will stream here as the agent responds.</p>'
-  ].join('')
+  node.innerHTML = '<div class="empty-avatar" aria-hidden="true"><img class="empty-avatar-image" src="/static/assets/cyrene-cartoon-avatar.png" alt="" decoding="async"></div>'
   messages?.append(node)
 }
 
@@ -1161,6 +1154,13 @@ function createIcon(name) {
       add('path', { d: 'M20 12h2' })
       add('path', { d: 'M4.93 19.07l1.41-1.41' })
       add('path', { d: 'M17.66 6.34l1.41-1.41' })
+      break
+    case 'arrow-up':
+      add('path', { d: 'M12 19V5' })
+      add('path', { d: 'M6 11l6-6 6 6' })
+      break
+    case 'square':
+      add('rect', { x: '8', y: '8', width: '8', height: '8', rx: '1.5' })
       break
     default:
       break
@@ -1332,16 +1332,26 @@ function renderNote(text) {
   return note
 }
 
+function renderSendButton(isSending) {
+  if (!sendButton) {
+    return
+  }
+  sendButton.disabled = false
+  sendButton.replaceChildren()
+  const icon = createIcon(isSending ? 'square' : 'arrow-up')
+  icon.classList.add('send-button-icon')
+  sendButton.append(icon)
+  const label = isSending ? 'Cancel run and restore prompt' : 'Send message'
+  sendButton.setAttribute('aria-label', label)
+  sendButton.setAttribute('title', label)
+}
+
 function setSending(isSending) {
   state.isSending = isSending
   if (isSending) {
     closeSessionMenu(false)
   }
-  if (sendButton) {
-    sendButton.disabled = false
-    sendButton.textContent = isSending ? 'Stop' : 'Send'
-    sendButton.setAttribute('aria-label', isSending ? 'Cancel run and restore prompt' : 'Send message')
-  }
+  renderSendButton(isSending)
   if (promptInput) {
     promptInput.disabled = isSending
   }
