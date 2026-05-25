@@ -1,6 +1,6 @@
 # Codex MCP Skill Local Bridge Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** 给本机 Codex 增加 Cyrene MCP + Skill bridge，让 Codex 可调用 Cyrene continuity，但不启用 hooks、不自动写 memory、不覆盖全局 config。
 
@@ -59,7 +59,7 @@
 - Modify: `package.json`
 - Modify: `package-lock.json`
 
-- [ ] **Step 1: Confirm branch and status**
+- [x] **Step 1: Confirm branch and status**
 
 Run:
 
@@ -69,7 +69,7 @@ git status --short --branch
 
 Expected: branch is `codex/codex-mcp-skill-local-bridge`, worktree clean or only the plan file before first commit.
 
-- [ ] **Step 2: Run baseline typecheck**
+- [x] **Step 2: Run baseline typecheck**
 
 Run:
 
@@ -79,7 +79,7 @@ npm run typecheck
 
 Expected: exit code `0`.
 
-- [ ] **Step 3: Run baseline tests**
+- [x] **Step 3: Run baseline tests**
 
 Run:
 
@@ -89,7 +89,7 @@ npm test
 
 Expected: exit code `0`.
 
-- [ ] **Step 4: Install MCP SDK**
+- [x] **Step 4: Install MCP SDK**
 
 Run:
 
@@ -99,7 +99,7 @@ npm install @modelcontextprotocol/sdk
 
 Expected: `package.json` and `package-lock.json` include `@modelcontextprotocol/sdk`.
 
-- [ ] **Step 5: Verify dependency typecheck stays green**
+- [x] **Step 5: Verify dependency typecheck stays green**
 
 Run:
 
@@ -117,7 +117,7 @@ Expected: exit code `0`.
 - Create: `tests/codex-project-id.test.ts`
 - Create: `src/codex/project-id.ts`
 
-- [ ] **Step 1: Write failing project identity tests**
+- [x] **Step 1: Write failing project identity tests**
 
 Create `tests/codex-project-id.test.ts`:
 
@@ -189,7 +189,7 @@ describe('Codex project identity', () => {
 })
 ```
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run:
 
@@ -199,7 +199,7 @@ npm test -- tests/codex-project-id.test.ts
 
 Expected: FAIL because `src/codex/project-id.ts` does not exist.
 
-- [ ] **Step 3: Implement project identity**
+- [x] **Step 3: Implement project identity**
 
 Create `src/codex/project-id.ts`:
 
@@ -268,7 +268,7 @@ function sha256Short(value: string): string {
 }
 ```
 
-- [ ] **Step 4: Verify GREEN**
+- [x] **Step 4: Verify GREEN**
 
 Run:
 
@@ -287,7 +287,7 @@ Expected: PASS.
 - Create: `src/codex/codex-memory-root.ts`
 - Modify: `src/memory/memory-store.ts`
 
-- [ ] **Step 1: Write failing memory root tests**
+- [x] **Step 1: Write failing memory root tests**
 
 Create `tests/codex-memory-root.test.ts`:
 
@@ -383,7 +383,7 @@ function createMemory(): CyreneMemory {
 }
 ```
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run:
 
@@ -393,7 +393,7 @@ npm test -- tests/codex-memory-root.test.ts
 
 Expected: FAIL because codex memory root and root-level store helper do not exist.
 
-- [ ] **Step 3: Implement Codex memory root**
+- [x] **Step 3: Implement Codex memory root**
 
 Create `src/codex/codex-memory-root.ts`:
 
@@ -421,7 +421,7 @@ export async function ensureCodexProjectMemoryRoot(projectId: string): Promise<s
 }
 ```
 
-- [ ] **Step 4: Refactor memory store reads**
+- [x] **Step 4: Refactor memory store reads**
 
 In `src/memory/memory-store.ts`, add root-level helpers and route existing readers through them:
 
@@ -463,7 +463,7 @@ return readActiveMemoriesFromRoot(root)
 
 and change pending read similarly.
 
-- [ ] **Step 5: Verify GREEN**
+- [x] **Step 5: Verify GREEN**
 
 Run:
 
@@ -482,7 +482,7 @@ Expected: PASS.
 - Create: `src/codex/continuity-context.ts`
 - Modify: `src/memory/memory-retriever.ts`
 
-- [ ] **Step 1: Write failing continuity tests**
+- [x] **Step 1: Write failing continuity tests**
 
 Create `tests/codex-continuity-context.test.ts`:
 
@@ -594,7 +594,7 @@ function createMemory(): CyreneMemory {
 }
 ```
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run:
 
@@ -604,7 +604,7 @@ npm test -- tests/codex-continuity-context.test.ts
 
 Expected: FAIL because continuity context and memory retriever root support do not exist.
 
-- [ ] **Step 3: Add memoryRoot support to retriever**
+- [x] **Step 3: Add memoryRoot support to retriever**
 
 In `src/memory/memory-retriever.ts`, extend input:
 
@@ -628,7 +628,7 @@ const memories = input.memoryRoot === undefined
 
 Import `readActiveMemoriesFromRoot`.
 
-- [ ] **Step 4: Implement continuity context**
+- [x] **Step 4: Implement continuity context**
 
 Create `src/codex/continuity-context.ts`:
 
@@ -730,7 +730,7 @@ export async function getCodexContinuityContext(input: {
 }
 ```
 
-- [ ] **Step 5: Verify GREEN**
+- [x] **Step 5: Verify GREEN**
 
 Run:
 
@@ -752,7 +752,7 @@ Expected: PASS.
 - Create: `src/mcp/mcp-server.ts`
 - Modify: `src/main.ts`
 
-- [ ] **Step 1: Write failing MCP server tests**
+- [x] **Step 1: Write failing MCP server tests**
 
 Create `tests/mcp-server.test.ts`:
 
@@ -800,7 +800,7 @@ describe('Cyrene MCP server', () => {
 })
 ```
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run:
 
@@ -810,7 +810,7 @@ npm test -- tests/mcp-server.test.ts
 
 Expected: FAIL because MCP server files and CLI branch do not exist.
 
-- [ ] **Step 3: Implement JSON helper**
+- [x] **Step 3: Implement JSON helper**
 
 Create `src/mcp/mcp-json.ts`:
 
@@ -827,7 +827,7 @@ export function jsonText(value: unknown) {
 }
 ```
 
-- [ ] **Step 4: Implement MCP tool modules**
+- [x] **Step 4: Implement MCP tool modules**
 
 Create `src/mcp/tools/project-identify.ts`:
 
@@ -872,7 +872,7 @@ export async function handleContinuityGet(
 }
 ```
 
-- [ ] **Step 5: Implement MCP server**
+- [x] **Step 5: Implement MCP server**
 
 Create `src/mcp/mcp-server.ts`:
 
@@ -914,7 +914,7 @@ export async function startCyreneMcpServer(options: { cwd: string; transport: 's
 }
 ```
 
-- [ ] **Step 6: Wire main CLI**
+- [x] **Step 6: Wire main CLI**
 
 In `src/main.ts`, import:
 
@@ -941,7 +941,7 @@ if (program.args[0] === 'mcp-server') {
 }
 ```
 
-- [ ] **Step 7: Verify GREEN**
+- [x] **Step 7: Verify GREEN**
 
 Run:
 
@@ -964,7 +964,7 @@ Expected: PASS.
 - Create: `integrations/codex/plugin/skills/cyrene-continuity/SKILL.md`
 - Modify: `src/main.ts`
 
-- [ ] **Step 1: Write failing Codex CLI tests**
+- [x] **Step 1: Write failing Codex CLI tests**
 
 Create `tests/codex-cli.test.ts`:
 
@@ -1052,7 +1052,7 @@ describe('cyrene codex CLI', () => {
 })
 ```
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run:
 
@@ -1062,7 +1062,7 @@ npm test -- tests/codex-cli.test.ts
 
 Expected: FAIL because Codex CLI and skill do not exist.
 
-- [ ] **Step 3: Implement doctor**
+- [x] **Step 3: Implement doctor**
 
 Create `src/codex/codex-doctor.ts`:
 
@@ -1136,7 +1136,7 @@ async function pathExists(path: string): Promise<boolean> {
 }
 ```
 
-- [ ] **Step 4: Implement install**
+- [x] **Step 4: Implement install**
 
 Create `src/codex/codex-install.ts`:
 
@@ -1176,7 +1176,7 @@ export async function installCodexDevBridge(): Promise<string> {
 }
 ```
 
-- [ ] **Step 5: Implement Codex CLI dispatcher**
+- [x] **Step 5: Implement Codex CLI dispatcher**
 
 Create `src/codex/codex-cli.ts`:
 
@@ -1208,7 +1208,7 @@ function parseConfigPath(args: string[]): string | undefined {
 }
 ```
 
-- [ ] **Step 6: Create skill**
+- [x] **Step 6: Create skill**
 
 Create `integrations/codex/plugin/skills/cyrene-continuity/SKILL.md`:
 
@@ -1242,7 +1242,7 @@ Phase 4 answers how Cyrene understands the current interaction and what response
 Affect and relationship analysis may influence tone, verbosity, dissent strength, and safety mode. It must not become psychological diagnosis or simulated subjective emotion.
 ```
 
-- [ ] **Step 7: Wire main CLI for codex command**
+- [x] **Step 7: Wire main CLI for codex command**
 
 In `src/main.ts`, import:
 
@@ -1262,7 +1262,7 @@ if (program.args[0] === 'codex') {
 }
 ```
 
-- [ ] **Step 8: Verify GREEN**
+- [x] **Step 8: Verify GREEN**
 
 Run:
 
@@ -1280,7 +1280,7 @@ Expected: PASS.
 **Files:**
 - All files from previous tasks.
 
-- [ ] **Step 1: Run full typecheck**
+- [x] **Step 1: Run full typecheck**
 
 Run:
 
@@ -1290,7 +1290,7 @@ npm run typecheck
 
 Expected: exit code `0`.
 
-- [ ] **Step 2: Run full tests**
+- [x] **Step 2: Run full tests**
 
 Run:
 
@@ -1300,7 +1300,7 @@ npm test
 
 Expected: exit code `0`.
 
-- [ ] **Step 3: Run doctor smoke command**
+- [x] **Step 3: Run doctor smoke command**
 
 Run:
 
@@ -1310,7 +1310,7 @@ npm run dev -- codex doctor
 
 Expected: stdout contains `Cyrene Codex Doctor` and does not modify files.
 
-- [ ] **Step 4: Run install smoke in isolated HOME**
+- [x] **Step 4: Run install smoke in isolated HOME**
 
 Run:
 
@@ -1320,7 +1320,7 @@ tmp_home="$(mktemp -d)" && HOME="$tmp_home" npm run dev -- codex install --dev &
 
 Expected: exit code `0`; stdout prints `[mcp_servers.cyrene]`; no real `~/.codex/config.toml` is modified.
 
-- [ ] **Step 5: Check git diff**
+- [x] **Step 5: Check git diff**
 
 Run:
 
@@ -1331,7 +1331,7 @@ git status --short
 
 Expected: no whitespace errors; status includes only intended files.
 
-- [ ] **Step 6: Commit implementation**
+- [x] **Step 6: Commit implementation**
 
 Run:
 

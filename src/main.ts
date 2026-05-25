@@ -6,6 +6,7 @@ import { persistContinuitySnapshot } from './affect/affect-runtime.js'
 import { createDefaultConfig } from './config.js'
 import { formatConfigDoctor } from './config-doctor.js'
 import { buildInitialMessages } from './context.js'
+import { handleCodexCommand } from './codex/codex-cli.js'
 import { runEvalHarness } from './evals/eval-runner.js'
 import type { EvalSuite } from './evals/types.js'
 import {
@@ -21,6 +22,7 @@ import { formatMemoryContext, retrieveMemories } from './memory/memory-retriever
 import { createMemorySnapshot, listMemorySnapshots, restoreMemorySnapshot } from './memory/memory-snapshot.js'
 import { readActiveMemories, readMemoryEvents, readPendingMemories } from './memory/memory-store.js'
 import { contextInfoForRoute } from './models/provider-router.js'
+import { startCyreneMcpServer } from './mcp/mcp-server.js'
 import { runRepl } from './repl.js'
 import { createRunRecorder } from './tracing/run-recorder.js'
 import { renderTraceReplay } from './tracing/replay.js'
@@ -42,7 +44,7 @@ async function main(): Promise<void> {
     .option('--host <host>', 'host for the Web console', '127.0.0.1')
     .option('--port <port>', 'port for the Web console', '4317')
 
-  if (isLocalCommandArgv(process.argv.slice(2), new Set(['memory', 'eval', 'evolution']))) {
+  if (isLocalCommandArgv(process.argv.slice(2), new Set(['memory', 'eval', 'evolution', 'mcp-server', 'codex']))) {
     program.allowUnknownOption()
   }
 
@@ -88,6 +90,21 @@ async function main(): Promise<void> {
   }
   if (program.args[0] === 'evolution') {
     await handleEvolutionCommand(options.cwd, program.args.slice(1))
+    return
+  }
+  if (program.args[0] === 'codex') {
+    await handleCodexCommand({
+      cwd: options.cwd,
+      args: program.args.slice(1)
+    })
+    return
+  }
+  if (program.args[0] === 'mcp-server') {
+    if (program.args.length > 2 || (program.args[1] !== undefined && program.args[1] !== '--stdio')) {
+      console.error('Usage: cyrene mcp-server --stdio')
+      process.exit(1)
+    }
+    await startCyreneMcpServer({ cwd: options.cwd, transport: 'stdio' })
     return
   }
 

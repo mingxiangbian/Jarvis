@@ -1,4 +1,4 @@
-import { appendFile, readFile, rename, writeFile } from 'node:fs/promises'
+import { appendFile, lstat, readFile, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { ensureMemoryRoot, getReadableMemoryRoot } from './paths.js'
 import type { CyreneMemory, MemoryEvent, MemoryScores, MemoryTombstone, PendingMemory } from './types.js'
@@ -14,7 +14,7 @@ export async function readActiveMemories(cwd: string): Promise<CyreneMemory[]> {
   if (root === null) {
     return []
   }
-  return (await readJsonLines<CyreneMemory>(join(root, INDEX_FILE))).filter((memory) => memory.status === 'active')
+  return readActiveMemoriesFromRoot(root)
 }
 
 export async function writeActiveMemories(cwd: string, memories: CyreneMemory[]): Promise<void> {
@@ -27,7 +27,23 @@ export async function readPendingMemories(cwd: string): Promise<PendingMemory[]>
   if (root === null) {
     return []
   }
-  return (await readJsonLines<PendingMemory>(join(root, PENDING_FILE))).filter((memory) => memory.status === 'pending')
+  return readPendingMemoriesFromRoot(root)
+}
+
+export async function readActiveMemoriesFromRoot(memoryRoot: string): Promise<CyreneMemory[]> {
+  const readable = await isReadableMemoryRoot(memoryRoot)
+  if (!readable) {
+    return []
+  }
+  return (await readJsonLines<CyreneMemory>(join(memoryRoot, INDEX_FILE))).filter((memory) => memory.status === 'active')
+}
+
+export async function readPendingMemoriesFromRoot(memoryRoot: string): Promise<PendingMemory[]> {
+  const readable = await isReadableMemoryRoot(memoryRoot)
+  if (!readable) {
+    return []
+  }
+  return (await readJsonLines<PendingMemory>(join(memoryRoot, PENDING_FILE))).filter((memory) => memory.status === 'pending')
 }
 
 export async function writePendingMemories(cwd: string, memories: PendingMemory[]): Promise<void> {
@@ -128,6 +144,24 @@ function latestIso(left: string, right: string): string {
 function uniqueOptional(values: string[]): string[] | undefined {
   const unique = Array.from(new Set(values))
   return unique.length === 0 ? undefined : unique
+}
+
+async function isReadableMemoryRoot(memoryRoot: string): Promise<boolean> {
+  try {
+    const stats = await lstat(memoryRoot)
+    if (stats.isSymbolicLink()) {
+      throw new Error(`Refusing to use memory symlink: ${memoryRoot}`)
+    }
+    if (!stats.isDirectory()) {
+      throw new Error(`Refusing to use non-directory memory path: ${memoryRoot}`)
+    }
+    return true
+  } catch (error) {
+    if (isFileErrorCode(error, 'ENOENT')) {
+      return false
+    }
+    throw error
+  }
 }
 
 async function readJsonLines<T>(filePath: string): Promise<T[]> {

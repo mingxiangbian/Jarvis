@@ -1,9 +1,10 @@
-import { readActiveMemories } from './memory-store.js'
+import { readActiveMemories, readActiveMemoriesFromRoot } from './memory-store.js'
 import type { CyreneMemory, MemoryDomain, MemoryScope, MemoryStrength, MemoryType } from './types.js'
 
 export interface RetrieveMemoriesInput {
   cwd: string
   userCyreneDir: string
+  memoryRoot?: string
   query: string
   task?: 'coding' | 'planning' | 'conversation' | 'memory' | 'debugging'
   domains?: MemoryDomain[]
@@ -20,7 +21,9 @@ export interface RetrievedMemory {
 }
 
 export async function retrieveMemories(input: RetrieveMemoriesInput): Promise<RetrievedMemory[]> {
-  const memories = await readActiveMemories(input.cwd)
+  const memories = input.memoryRoot === undefined
+    ? await readActiveMemories(input.cwd)
+    : await readActiveMemoriesFromRoot(input.memoryRoot)
   const task = input.task ?? 'conversation'
   const queryTokens = tokenize(input.query)
   const filtered = memories.filter((memory) => isEligible(memory, input, task))
