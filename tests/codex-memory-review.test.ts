@@ -336,6 +336,46 @@ describe('Codex pending memory review', () => {
     await expect(readFile(join(outside, 'MEMORY.md'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
+  it('rejects rendering projection output file symlinks without changing outside files', async () => {
+    const memoryRoot = await createTempDir('cyrene-review-memory-root-')
+    const outside = await createTempDir('cyrene-review-projection-file-outside-')
+    const outsideTarget = join(outside, 'outside.md')
+    await writeFile(outsideTarget, 'outside original\n', 'utf8')
+    await mkdir(join(memoryRoot, 'projections'))
+    await symlink(outsideTarget, join(memoryRoot, 'projections', 'MEMORY.md'))
+
+    await expect(renderMemoryProjectionsFromRoot(memoryRoot)).rejects.toThrow(/projection.*symlink/)
+
+    await expect(readFile(outsideTarget, 'utf8')).resolves.toBe('outside original\n')
+  })
+
+  it('rejects promotion before mutation when a projection output file is a symlink', async () => {
+    const home = await createTempDir('cyrene-review-home-')
+    vi.stubEnv('HOME', home)
+    const cwd = await createTempDir('cyrene-review-project-')
+    const outside = await createTempDir('cyrene-review-promote-output-outside-')
+    const outsideTarget = join(outside, 'outside.md')
+    const candidate = createPending()
+    const memoryRoot = await seedPending(cwd, [candidate])
+    await writeFile(outsideTarget, 'outside original\n', 'utf8')
+    await mkdir(join(memoryRoot, 'projections'))
+    await symlink(outsideTarget, join(memoryRoot, 'projections', 'MEMORY.md'))
+
+    await expect(
+      promoteCodexPendingMemory({
+        cwd,
+        id: candidate.id,
+        reviewHash: reviewHashForPendingMemory(candidate),
+        now: '2026-05-25T01:00:00.000Z'
+      })
+    ).rejects.toThrow(/projection.*symlink/)
+
+    await expect(readFile(join(memoryRoot, 'index.jsonl'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(join(memoryRoot, 'events.jsonl'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(outsideTarget, 'utf8')).resolves.toBe('outside original\n')
+    await expect(readFile(join(memoryRoot, 'pending.jsonl'), 'utf8')).resolves.toContain(candidate.content)
+  })
+
   it('returns a compact pending review notice', async () => {
     const home = await createTempDir('cyrene-review-home-')
     vi.stubEnv('HOME', home)

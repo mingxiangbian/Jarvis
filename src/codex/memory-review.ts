@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { codexProjectMemoryRoot } from './codex-memory-root.js'
 import { identifyCodexProject } from './project-id.js'
-import { renderMemoryProjectionsFromRoot } from '../memory/memory-exporter.js'
+import { assertMemoryProjectionTargetsSafe, renderMemoryProjectionsFromRoot } from '../memory/memory-exporter.js'
 import {
   appendMemoryEventFromRoot,
   appendTombstoneFromRoot,
@@ -282,6 +282,7 @@ export async function promoteCodexPendingMemory(input: {
   const nextActive = upsertActiveMemory(active, memory)
   const nextPending = pending.filter((memoryCandidate) => memoryCandidate.id !== candidate.id)
 
+  await assertMemoryProjectionTargetsSafe(memoryRoot)
   await writeActiveMemoriesFromRoot(memoryRoot, nextActive)
   await writePendingMemoriesFromRoot(memoryRoot, nextPending)
   await appendMemoryEventFromRoot(memoryRoot, {
