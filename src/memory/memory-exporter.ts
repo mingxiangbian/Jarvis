@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { ensureMemoryRoot } from './paths.js'
-import { readActiveMemories, readActiveMemoriesFromRoot } from './memory-store.js'
+import { ensureWritableMemoryRootPath, readActiveMemories, readActiveMemoriesFromRoot } from './memory-store.js'
 import type { CyreneMemory } from './types.js'
 
 const GENERATED_HEADER = '<!-- Generated from .cyrene/memory/index.jsonl. Do not edit manually. -->'
@@ -13,8 +13,9 @@ export async function renderMemoryProjections(cwd: string): Promise<void> {
 }
 
 export async function renderMemoryProjectionsFromRoot(memoryRoot: string): Promise<void> {
-  const memories = await readActiveMemoriesFromRoot(memoryRoot)
-  await writeMemoryProjections(memoryRoot, memories)
+  const root = await ensureWritableMemoryRootPath(memoryRoot)
+  const memories = await readActiveMemoriesFromRoot(root)
+  await writeMemoryProjections(root, memories)
 }
 
 async function writeMemoryProjections(root: string, memories: CyreneMemory[]): Promise<void> {

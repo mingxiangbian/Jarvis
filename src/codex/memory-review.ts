@@ -238,7 +238,8 @@ export async function promoteCodexPendingMemory(input: {
     readActiveMemoriesFromRoot(memoryRoot),
     readTombstonesFromRoot(memoryRoot)
   ])
-  const decision = validateMemoryCandidate({ candidate, existingMemories: active, tombstones, now })
+  const confirmedCandidate: PendingMemory = { ...candidate, userConfirmed: true }
+  const decision = validateMemoryCandidate({ candidate: confirmedCandidate, existingMemories: active, tombstones, now })
   if (decision.action === 'reject') {
     return {
       project,
@@ -252,8 +253,7 @@ export async function promoteCodexPendingMemory(input: {
     }
   }
 
-  const confirmedCandidate: PendingMemory = { ...candidate, userConfirmed: true }
-  const memory = activateCandidate(confirmedCandidate, now)
+  const memory = memoryForPromotedDecision(decision, now)
   const nextActive = upsertActiveMemory(active, memory)
   const nextPending = pending.filter((memoryCandidate) => memoryCandidate.id !== candidate.id)
 
@@ -279,6 +279,21 @@ export async function promoteCodexPendingMemory(input: {
       reviewHash: latestReviewHash
     }
   }
+}
+
+function memoryForPromotedDecision(
+  decision: Exclude<ReturnType<typeof validateMemoryCandidate>, { action: 'reject' }>,
+  now: string
+): CyreneMemory {
+  if (decision.action === 'pending') {
+    return activateCandidate({ ...decision.candidate, userConfirmed: true }, now)
+  }
+
+  if (decision.action === 'auto_write') {
+    return { ...decision.memory, userConfirmed: true }
+  }
+
+  throw new Error(`Unsupported validator action for Codex pending promotion: ${decision.action}`)
 }
 
 export async function rejectCodexPendingMemory(input: {

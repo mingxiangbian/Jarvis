@@ -43,6 +43,10 @@ export async function writeActiveMemoriesFromRoot(memoryRoot: string, memories: 
   await writeJsonLinesAtomic(join(root, INDEX_FILE), memories.filter((memory) => memory.status === 'active'))
 }
 
+export async function ensureWritableMemoryRootPath(memoryRoot: string): Promise<string> {
+  return ensureWritableMemoryRoot(memoryRoot)
+}
+
 export async function readPendingMemoriesFromRoot(memoryRoot: string): Promise<PendingMemory[]> {
   const readable = await isReadableMemoryRoot(memoryRoot)
   if (!readable) {
