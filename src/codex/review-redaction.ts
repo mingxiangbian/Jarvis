@@ -42,7 +42,7 @@ const RULES: RedactionRule[] = [
   },
   {
     name: 'phone',
-    pattern: /\b(?:\+?\d[\d .()_-]{7,}\d)\b/g,
+    pattern: /(?<!\d-)\b(?!\d{4}-\d{2}-\d{2}\b)(?:\+?\d[\d .()_-]{7,}\d)\b/g,
     replacement: '[REDACTED_PHONE]'
   }
 ]

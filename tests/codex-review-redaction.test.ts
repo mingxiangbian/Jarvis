@@ -41,4 +41,11 @@ describe('Codex review redaction', () => {
     expect(result.counts.secret).toBe(1)
     expect(result.counts.phone ?? 0).toBe(0)
   })
+
+  it('does not redact ISO-like timestamps as phone numbers', () => {
+    const result = redactReviewText('created at 2026-05-26 14:04:45')
+
+    expect(result.text).toBe('created at 2026-05-26 14:04:45')
+    expect(result.counts.phone ?? 0).toBe(0)
+  })
 })
