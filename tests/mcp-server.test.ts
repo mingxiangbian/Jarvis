@@ -120,6 +120,46 @@ describe('Cyrene MCP server', () => {
     expect(promoteJson.result.action).toBe('not_found')
   })
 
+  it('handles global pending memory review MCP actions on the global root', async () => {
+    const home = await createTempDir('cyrene-mcp-global-review-home-')
+    vi.stubEnv('HOME', home)
+    const cwd = await createTempDir('cyrene-mcp-global-review-project-')
+
+    const proposed = await handleMemoryPropose(
+      {
+        cwd,
+        candidate: {
+          domain: 'procedural',
+          type: 'procedural_rule',
+          scope: 'global',
+          strength: 'hard',
+          content: 'Global pending MCP review must use the global memory root.',
+          evidence: [{ runId: 'mcp-global-review-run-1', summary: 'MCP global review test.' }]
+        }
+      },
+      process.cwd()
+    )
+    const proposedJson = JSON.parse(proposed.content[0]?.text ?? '{}')
+    const candidateId = proposedJson.result.candidateId
+    const reviewHash = proposedJson.result.review.reviewHash
+    expect(String(proposedJson.memoryRoot)).toContain('/.cyrene/codex/global/memory')
+
+    const listJson = JSON.parse((await handleMemoryPendingList({ cwd }, process.cwd())).content[0]?.text ?? '{}')
+    expect(listJson.total).toBe(1)
+    expect(listJson.pending[0].id).toBe(candidateId)
+
+    const getJson = JSON.parse((await handleMemoryPendingGet({ cwd, id: candidateId }, process.cwd())).content[0]?.text ?? '{}')
+    expect(getJson.result.action).toBe('get')
+    expect(String(getJson.memoryRoot)).toContain('/.cyrene/codex/global/memory')
+
+    const rejectJson = JSON.parse(
+      (await handleMemoryReject({ cwd, id: candidateId, reviewHash, reason: 'Covered by MCP global test.' }, process.cwd()))
+        .content[0]?.text ?? '{}'
+    )
+    expect(rejectJson.result.action).toBe('reject')
+    expect(String(rejectJson.memoryRoot)).toContain('/.cyrene/codex/global/memory')
+  })
+
   it('handles memory dream and profile MCP tools as JSON text', async () => {
     const home = await createTempDir('cyrene-mcp-memory-dream-home-')
     vi.stubEnv('HOME', home)

@@ -1,9 +1,9 @@
-import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { codexProjectMemoryRoot } from '../src/codex/codex-memory-root.js'
+import { codexGlobalMemoryRoot, codexProjectMemoryRoot } from '../src/codex/codex-memory-root.js'
 import {
   getCodexPendingMemory,
   getCodexPendingReviewNotice,
@@ -37,6 +37,13 @@ async function seedPending(cwd: string, pending: PendingMemory[]): Promise<strin
   await mkdir(memoryRoot, { recursive: true })
   await writeFile(join(memoryRoot, 'pending.jsonl'), pending.map((item) => JSON.stringify(item)).join('\n') + '\n')
   return memoryRoot
+}
+
+async function seedGlobalPending(pending: PendingMemory[]): Promise<string> {
+  const memoryRoot = codexGlobalMemoryRoot()
+  await mkdir(memoryRoot, { recursive: true })
+  await writeFile(join(memoryRoot, 'pending.jsonl'), pending.map((item) => JSON.stringify(item)).join('\n') + '\n')
+  return realpath(memoryRoot)
 }
 
 function parseJsonLines<T>(content: string): T[] {
@@ -107,6 +114,110 @@ describe('Codex pending memory review', () => {
     if (result.result.action !== 'get') throw new Error('expected get')
     expect(result.result.candidate.content).toBe(candidate.content)
     expect(result.result.reviewHash).toBe(reviewHashForPendingMemory(candidate))
+  })
+
+  it('lists global pending memories when the current project has no pending file', async () => {
+    const home = await createTempDir('cyrene-review-global-home-')
+    vi.stubEnv('HOME', home)
+    const cwd = await createTempDir('cyrene-review-global-project-')
+    const candidate = createPending({
+      id: 'global-pending-1',
+      scope: 'global',
+      content: 'Global pending memory should be visible from any project.',
+      lastSeenAt: '2026-05-25T02:00:00.000Z'
+    })
+    const globalRoot = await seedGlobalPending([candidate])
+
+    const result = await listCodexPendingMemories({ cwd })
+
+    expect(result.total).toBe(1)
+    expect(result.memoryRoot).toBe(codexProjectMemoryRoot((await identifyCodexProject(cwd)).projectId))
+    expect(result.pending[0]?.id).toBe(candidate.id)
+    expect(await getCodexPendingMemory({ cwd, id: candidate.id })).toMatchObject({
+      memoryRoot: globalRoot,
+      result: { action: 'get' }
+    })
+  })
+
+  it('lists global and project pending memories newest first', async () => {
+    const home = await createTempDir('cyrene-review-global-project-home-')
+    vi.stubEnv('HOME', home)
+    const cwd = await createTempDir('cyrene-review-global-project-')
+    await seedGlobalPending([
+      createPending({
+        id: 'global-old',
+        scope: 'global',
+        content: 'Older global pending memory.',
+        lastSeenAt: '2026-05-25T01:00:00.000Z'
+      })
+    ])
+    await seedPending(cwd, [
+      createPending({
+        id: 'project-new',
+        scope: 'project',
+        content: 'Newer project pending memory.',
+        lastSeenAt: '2026-05-25T03:00:00.000Z'
+      })
+    ])
+
+    const result = await listCodexPendingMemories({ cwd })
+
+    expect(result.total).toBe(2)
+    expect(result.pending.map((item) => item.id)).toEqual(['project-new', 'global-old'])
+  })
+
+  it('promotes a global pending memory only in the global root', async () => {
+    const home = await createTempDir('cyrene-review-promote-global-home-')
+    vi.stubEnv('HOME', home)
+    const cwd = await createTempDir('cyrene-review-promote-global-project-')
+    const candidate = createPending({
+      id: 'global-promote',
+      scope: 'global',
+      content: 'Promoted global pending memory stays in global memory root.',
+      normalizedKey: 'global-promote-root'
+    })
+    const globalRoot = await seedGlobalPending([candidate])
+    const projectRoot = codexProjectMemoryRoot((await identifyCodexProject(cwd)).projectId)
+
+    const result = await promoteCodexPendingMemory({
+      cwd,
+      id: candidate.id,
+      reviewHash: reviewHashForPendingMemory(candidate),
+      reason: 'User approved global memory.',
+      now: '2026-05-25T04:00:00.000Z'
+    })
+
+    expect(result.result.action).toBe('promote')
+    expect(result.memoryRoot).toBe(globalRoot)
+    expect(await readFile(join(globalRoot, 'index.jsonl'), 'utf8')).toContain(candidate.content)
+    await expect(readFile(join(projectRoot, 'index.jsonl'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('rejects a global pending memory only in the global root', async () => {
+    const home = await createTempDir('cyrene-review-reject-global-home-')
+    vi.stubEnv('HOME', home)
+    const cwd = await createTempDir('cyrene-review-reject-global-project-')
+    const candidate = createPending({
+      id: 'global-reject',
+      scope: 'global',
+      content: 'Rejected global pending memory writes global tombstone.',
+      normalizedKey: 'global-reject-root'
+    })
+    const globalRoot = await seedGlobalPending([candidate])
+    const projectRoot = codexProjectMemoryRoot((await identifyCodexProject(cwd)).projectId)
+
+    const result = await rejectCodexPendingMemory({
+      cwd,
+      id: candidate.id,
+      reviewHash: reviewHashForPendingMemory(candidate),
+      reason: 'User rejected global memory.',
+      now: '2026-05-25T05:00:00.000Z'
+    })
+
+    expect(result.result.action).toBe('reject')
+    expect(result.memoryRoot).toBe(globalRoot)
+    expect(await readFile(join(globalRoot, 'tombstones.jsonl'), 'utf8')).toContain(candidate.normalizedKey)
+    await expect(readFile(join(projectRoot, 'tombstones.jsonl'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
   it('promotes a pending memory after hash confirmation', async () => {

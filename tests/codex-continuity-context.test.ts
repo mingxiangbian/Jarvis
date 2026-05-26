@@ -194,6 +194,36 @@ describe('Codex continuity context', () => {
     expect(context.profile.content).not.toContain(pending.content)
   })
 
+  it('returns pending review notice for global pending without exposing it as active memory', async () => {
+    const home = await createTempDir('cyrene-codex-continuity-global-pending-home-')
+    process.env.HOME = home
+    const repo = await createTempDir('cyrene-codex-continuity-global-pending-repo-')
+    const globalMemoryRoot = codexGlobalMemoryRoot()
+    const pending = {
+      ...createPendingMemory(),
+      id: 'global-pending-review',
+      scope: 'global' as const,
+      content: 'Global pending memory should show only as pending review notice.'
+    }
+    await mkdir(globalMemoryRoot, { recursive: true })
+    await writeFile(join(globalMemoryRoot, 'pending.jsonl'), JSON.stringify(pending) + '\n')
+
+    const context = await getCodexContinuityContext({
+      cwd: repo,
+      userMessage: 'Check pending review.',
+      task: 'memory'
+    })
+
+    expect(context.pendingReview).toMatchObject({
+      count: 1,
+      hasItems: true,
+      newestCandidateId: pending.id
+    })
+    expect(context.memory.items).toEqual([])
+    expect(JSON.stringify(context.memory)).not.toContain(pending.content)
+    expect(context.profile.content).not.toContain(pending.content)
+  })
+
   it('marks overdue dream state due without running deep promotion', async () => {
     const home = await createTempDir('cyrene-codex-continuity-dream-home-')
     process.env.HOME = home
