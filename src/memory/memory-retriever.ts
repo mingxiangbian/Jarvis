@@ -5,6 +5,8 @@ export interface RetrieveMemoriesInput {
   cwd: string
   userCyreneDir: string
   memoryRoot?: string
+  memoryRoots?: string[]
+  extraMemories?: CyreneMemory[]
   query: string
   task?: 'coding' | 'planning' | 'conversation' | 'memory' | 'debugging'
   domains?: MemoryDomain[]
@@ -21,9 +23,7 @@ export interface RetrievedMemory {
 }
 
 export async function retrieveMemories(input: RetrieveMemoriesInput): Promise<RetrievedMemory[]> {
-  const memories = input.memoryRoot === undefined
-    ? await readActiveMemories(input.cwd)
-    : await readActiveMemoriesFromRoot(input.memoryRoot)
+  const memories = await readInputMemories(input)
   const task = input.task ?? 'conversation'
   const queryTokens = tokenize(input.query)
   const filtered = memories.filter((memory) => isEligible(memory, input, task))
@@ -46,6 +46,22 @@ export async function retrieveMemories(input: RetrieveMemoriesInput): Promise<Re
     tokenCount += itemTokens
   }
   return selected
+}
+
+async function readInputMemories(input: RetrieveMemoriesInput): Promise<CyreneMemory[]> {
+  const roots = input.memoryRoots ?? (input.memoryRoot === undefined ? undefined : [input.memoryRoot])
+  const memories = roots === undefined
+    ? await readActiveMemories(input.cwd)
+    : (await Promise.all(roots.map((root) => readActiveMemoriesFromRoot(root)))).flat()
+  return dedupeMemories([...(input.extraMemories ?? []), ...memories])
+}
+
+function dedupeMemories(memories: CyreneMemory[]): CyreneMemory[] {
+  const byKey = new Map<string, CyreneMemory>()
+  for (const memory of memories) {
+    byKey.set(memory.normalizedKey || memory.id, memory)
+  }
+  return [...byKey.values()]
 }
 
 export function formatMemoryContext(memories: RetrievedMemory[]): string {

@@ -1,4 +1,4 @@
-import { lstat, mkdir, realpath } from 'node:fs/promises'
+import { lstat, mkdir, readdir, realpath } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { isAbsolute, join, relative } from 'node:path'
 
@@ -10,13 +10,30 @@ export function codexProjectRoot(projectId: string): string {
   return join(codexGlobalRoot(), 'projects', projectId)
 }
 
+export function codexGlobalMemoryRoot(): string {
+  return join(codexGlobalRoot(), 'global', 'memory')
+}
+
 export function codexProjectMemoryRoot(projectId: string): string {
   return join(codexProjectRoot(projectId), 'memory')
+}
+
+export async function ensureCodexGlobalMemoryRoot(): Promise<string> {
+  const globalRoot = await ensureCodexGlobalScopeRoot()
+  return ensureSafeDirectory(join(globalRoot, 'memory'), globalRoot)
 }
 
 export async function ensureCodexProjectMemoryRoot(projectId: string): Promise<string> {
   const projectRoot = await ensureCodexProjectRoot(projectId)
   return ensureSafeDirectory(join(projectRoot, 'memory'), projectRoot)
+}
+
+export async function getReadableCodexGlobalMemoryRoot(): Promise<string | null> {
+  const globalRoot = await getReadableCodexGlobalScopeRoot()
+  if (globalRoot === null) {
+    return null
+  }
+  return getSafeDirectoryOrNull(join(globalRoot, 'memory'), globalRoot)
 }
 
 export async function getReadableCodexProjectMemoryRoot(projectId: string): Promise<string | null> {
@@ -27,21 +44,68 @@ export async function getReadableCodexProjectMemoryRoot(projectId: string): Prom
   return getSafeDirectoryOrNull(join(projectRoot, 'memory'), projectRoot)
 }
 
-async function ensureCodexProjectRoot(projectId: string): Promise<string> {
+export async function getReadableCodexProjectMemoryRoots(): Promise<string[]> {
+  const projectsRoot = await getReadableCodexProjectsRoot()
+  if (projectsRoot === null) {
+    return []
+  }
+
+  const entries = await readdir(projectsRoot, { withFileTypes: true })
+  const memoryRoots: string[] = []
+  for (const entry of entries) {
+    if (!entry.isDirectory()) {
+      continue
+    }
+    const projectRoot = await getSafeDirectoryOrNull(join(projectsRoot, entry.name), projectsRoot)
+    if (projectRoot === null) {
+      continue
+    }
+    const memoryRoot = await getSafeDirectoryOrNull(join(projectRoot, 'memory'), projectRoot)
+    if (memoryRoot !== null) {
+      memoryRoots.push(memoryRoot)
+    }
+  }
+  return memoryRoots
+}
+
+async function ensureCodexBaseRoot(): Promise<string> {
   const homeRoot = await realpath(homedir())
   const cyreneDir = await ensureSafeDirectory(join(homeRoot, '.cyrene'), homeRoot)
-  const codexDir = await ensureSafeDirectory(join(cyreneDir, 'codex'), cyreneDir)
+  return ensureSafeDirectory(join(cyreneDir, 'codex'), cyreneDir)
+}
+
+async function ensureCodexGlobalScopeRoot(): Promise<string> {
+  const codexDir = await ensureCodexBaseRoot()
+  return ensureSafeDirectory(join(codexDir, 'global'), codexDir)
+}
+
+async function ensureCodexProjectRoot(projectId: string): Promise<string> {
+  const codexDir = await ensureCodexBaseRoot()
   const projectsDir = await ensureSafeDirectory(join(codexDir, 'projects'), codexDir)
   return ensureSafeDirectory(join(projectsDir, projectId), projectsDir)
 }
 
-async function getReadableCodexProjectRoot(projectId: string): Promise<string | null> {
+async function getReadableCodexBaseRoot(): Promise<string | null> {
   const homeRoot = await realpath(homedir())
   const cyreneDir = await getSafeDirectoryOrNull(join(homeRoot, '.cyrene'), homeRoot)
   if (cyreneDir === null) return null
-  const codexDir = await getSafeDirectoryOrNull(join(cyreneDir, 'codex'), cyreneDir)
+  return getSafeDirectoryOrNull(join(cyreneDir, 'codex'), cyreneDir)
+}
+
+async function getReadableCodexGlobalScopeRoot(): Promise<string | null> {
+  const codexDir = await getReadableCodexBaseRoot()
   if (codexDir === null) return null
-  const projectsDir = await getSafeDirectoryOrNull(join(codexDir, 'projects'), codexDir)
+  return getSafeDirectoryOrNull(join(codexDir, 'global'), codexDir)
+}
+
+async function getReadableCodexProjectsRoot(): Promise<string | null> {
+  const codexDir = await getReadableCodexBaseRoot()
+  if (codexDir === null) return null
+  return getSafeDirectoryOrNull(join(codexDir, 'projects'), codexDir)
+}
+
+async function getReadableCodexProjectRoot(projectId: string): Promise<string | null> {
+  const projectsDir = await getReadableCodexProjectsRoot()
   if (projectsDir === null) return null
   return getSafeDirectoryOrNull(join(projectsDir, projectId), projectsDir)
 }

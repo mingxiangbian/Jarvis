@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { ensureCodexProjectMemoryRoot } from './codex-memory-root.js'
+import { ensureCodexGlobalMemoryRoot, ensureCodexProjectMemoryRoot } from './codex-memory-root.js'
 import { summarizePendingMemory } from './memory-review.js'
 import { identifyCodexProject } from './project-id.js'
 import {
@@ -70,8 +70,10 @@ export async function proposeCodexMemoryCandidate(input: {
 }): Promise<CodexMemoryProposeResult> {
   const now = input.now ?? new Date().toISOString()
   const project = await identifyCodexProject(input.cwd)
-  const memoryRoot = await ensureCodexProjectMemoryRoot(project.projectId)
   const candidate = toPendingMemory(input.candidate, now)
+  const memoryRoot = candidate.scope === 'global'
+    ? await ensureCodexGlobalMemoryRoot()
+    : await ensureCodexProjectMemoryRoot(project.projectId)
   const [existingMemories, tombstones] = await Promise.all([
     readActiveMemoriesFromRoot(memoryRoot),
     readTombstonesFromRoot(memoryRoot)

@@ -69,14 +69,25 @@ Dream-gated repeated evidence auto-promotion + bounded active memory + single MO
 Phase C-D 后的 Codex memory root 主要文件：
 
 ```txt
+~/.cyrene/codex/global/memory/
+  index.jsonl          global active memory source of truth
+  pending.jsonl        global pending candidates
+  events.jsonl         global audit events
+  tombstones.jsonl     global rejected/archived/superseded fingerprints
+  MODEL_PROFILE.md     generated global projection
+
 ~/.cyrene/codex/projects/<projectId>/memory/
-  index.jsonl          active memory source of truth
-  pending.jsonl        pending candidates
-  events.jsonl         audit events
-  tombstones.jsonl     rejected/archived/superseded fingerprints
+  index.jsonl          project active memory source of truth
+  pending.jsonl        project pending candidates
+  events.jsonl         project audit events
+  tombstones.jsonl     project rejected/archived/superseded fingerprints
   review-summaries.jsonl
-  MODEL_PROFILE.md     generated projection for model + human audit
+  MODEL_PROFILE.md     generated project projection for model + human audit
 ```
+
+`scope: global` 的 memory 必须存入 `~/.cyrene/codex/global/memory/`，不能只存在某个 project namespace 下。`scope: project` 和 `scope: session` 仍存入当前 project memory root。
+
+`cyrene_continuity_get` 默认读取 global root + 当前 project root，再做 task-scoped retrieval。为兼容 Phase C-A/C-B 期间已经写入 project root 的历史数据，第一版还会扫描已有 project roots 中 `scope: global` 的 active memory，并在 doctor/maintenance 中迁移到 global root。
 
 Phase C-D 不新增完整 session transcript store。Codex app 已经保存 session，Cyrene 只保存 Dream pass 需要的轻量、可审计材料：
 
@@ -434,9 +445,10 @@ newline/punct:  conservative overhead
 
 - 给模型每轮默认读取。
 - 给人类快速审计。
-- 从 active `index.jsonl` 自动生成。
+- 从 global active `index.jsonl` + 当前 project active `index.jsonl` 自动生成。
 - 不直接编辑。
 - 不保存 pending、rejected、expired、superseded memory。
+- 不保证包含所有 active memory；高敏或不可表面化 memory 可以留在 active store，但不进入 profile。
 
 文件头：
 
@@ -517,6 +529,8 @@ Profile renderer 选择 active memory 时按以下优先级：
 - 再保留 project/procedural hard rules。
 - 再保留高 usefulness interaction preferences。
 - 最后截断或省略低优先级 sections。
+
+Sensitivity gate 会影响 `MODEL_PROFILE.md` 的可见性：低敏、可表面化内容可以进入 profile；中高敏内容即使已经是 active memory，也默认只参与 retrieval strategy 或 response strategy，不直接写入 profile。profile 是模型每轮默认可见内容，因此比 active store 更严格。
 
 ## Retrieval 改进
 
@@ -678,6 +692,7 @@ Stop hook 继续负责：
 Phase C-D 增加：
 
 - upsert pending 后更新 candidate 的 evidence metadata。
+- `scope: global` candidate 写入 global pending store；pending list/get/promote/reject 同时检查 global root 和当前 project root。
 - 如果发现 overdue，只写 due marker 或短 audit event，不在 hook 同步运行长时间 Dream pass。
 - hook stdout 仍必须返回合法 Codex hook JSON。
 - Dream scheduling / due marker 失败必须 fail-open，不阻塞 Codex。
@@ -713,7 +728,7 @@ cyrene_memory_doctor
 
 - project identity。
 - profile summary 或 profile content。
-- task retrieval memories。
+- global + 当前 project 的 task retrieval memories。
 - pending review notice。
 - response strategy。
 - debug mode 下返回 retrieval reasons。

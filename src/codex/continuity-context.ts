@@ -3,7 +3,13 @@ import type { PrincipledDissentPolicy } from '../affect/types.js'
 import { createDefaultConfig } from '../config.js'
 import { retrieveMemories } from '../memory/memory-retriever.js'
 import type { RetrieveMemoriesInput } from '../memory/memory-retriever.js'
-import { codexProjectMemoryRoot } from './codex-memory-root.js'
+import { readActiveMemoriesFromRoot } from '../memory/memory-store.js'
+import type { CyreneMemory } from '../memory/types.js'
+import {
+  codexGlobalMemoryRoot,
+  codexProjectMemoryRoot,
+  getReadableCodexProjectMemoryRoots
+} from './codex-memory-root.js'
 import { getCodexPendingReviewNotice } from './memory-review.js'
 import { identifyCodexProject } from './project-id.js'
 import type { CodexPendingReviewNotice } from './memory-review.js'
@@ -50,7 +56,8 @@ export async function getCodexContinuityContext(input: {
     retrieveMemories({
       cwd: input.cwd,
       userCyreneDir: config.userCyreneDir,
-      memoryRoot: codexProjectMemoryRoot(project.projectId),
+      memoryRoots: [codexGlobalMemoryRoot(), codexProjectMemoryRoot(project.projectId)],
+      extraMemories: await readLegacyGlobalCodexMemories(project.projectId),
       query: input.userMessage,
       task,
       maxItems: 8,
@@ -100,4 +107,15 @@ export async function getCodexContinuityContext(input: {
       reason: snapshot.dissent.reason
     }
   }
+}
+
+async function readLegacyGlobalCodexMemories(currentProjectId: string): Promise<CyreneMemory[]> {
+  const currentProjectMemoryRoot = codexProjectMemoryRoot(currentProjectId)
+  const roots = await getReadableCodexProjectMemoryRoots()
+  const legacy = await Promise.all(
+    roots
+      .filter((root) => root !== currentProjectMemoryRoot)
+      .map(async (root) => (await readActiveMemoriesFromRoot(root)).filter((memory) => memory.scope === 'global'))
+  )
+  return legacy.flat()
 }

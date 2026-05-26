@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, symlink } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -44,6 +44,36 @@ describe('Codex memory propose', () => {
     expect(pending).toContain('Specs and plans for this user should be written in Chinese.')
     expect(pending).toContain('"seenCount":1')
     await expect(readFile(join(result.memoryRoot, 'index.jsonl'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('writes global-scope candidates to the Codex global pending memory root', async () => {
+    const home = await createTempDir('cyrene-codex-propose-home-')
+    vi.stubEnv('HOME', home)
+    const cwd = await createTempDir('cyrene-codex-propose-project-')
+
+    const result = await proposeCodexMemoryCandidate({
+      cwd,
+      candidate: {
+        domain: 'procedural',
+        type: 'procedural_rule',
+        strength: 'hard',
+        scope: 'global',
+        content: 'Specs and plans default to Chinese in all projects.',
+        source: 'user_explicit',
+        evidence: [{ runId: 'run-global', quote: '以后在所有项目里，所有 spec 和 plan 默认用中文写。' }],
+        tags: ['language']
+      }
+    })
+
+    const globalMemoryRoot = join(home, '.cyrene', 'codex', 'global', 'memory')
+    expect(result.memoryRoot).toBe(await realpath(globalMemoryRoot))
+    const pending = await readFile(join(globalMemoryRoot, 'pending.jsonl'), 'utf8')
+    expect(pending).toContain('Specs and plans default to Chinese in all projects.')
+
+    const identity = await identifyCodexProject(cwd)
+    await expect(readFile(join(codexProjectMemoryRoot(identity.projectId), 'pending.jsonl'), 'utf8')).rejects.toMatchObject({
+      code: 'ENOENT'
+    })
   })
 
   it('returns review metadata for pending candidates', async () => {

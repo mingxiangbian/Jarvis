@@ -120,6 +120,37 @@ describe('Codex Stop hook runtime', () => {
     })
   })
 
+  it('writes all-project explicit durable instructions to global pending memory', async () => {
+    const home = await createTempDir('cyrene-codex-stop-home-')
+    vi.stubEnv('HOME', home)
+    const cwd = await createTempDir('cyrene-codex-stop-project-')
+    const transcript = join(cwd, 'transcript.jsonl')
+    await writeFile(
+      transcript,
+      [
+        JSON.stringify({ role: 'user', content: '记住：以后在所有项目里，所有 spec 和 plan 默认用中文写。' }),
+        JSON.stringify({ role: 'assistant', content: '已记录为全局规则。' })
+      ].join('\n') + '\n'
+    )
+
+    const result = await handleCodexStopHookPayload({
+      cwd,
+      session_id: 's-global',
+      turn_id: 't-global',
+      transcript_path: transcript
+    })
+
+    expect(result.action).toBe('pending')
+    const globalPending = await readFile(join(home, '.cyrene', 'codex', 'global', 'memory', 'pending.jsonl'), 'utf8')
+    expect(globalPending).toContain('"scope":"global"')
+    expect(globalPending).toContain('以后在所有项目里，所有 spec 和 plan 默认用中文写。')
+
+    const identity = await identifyCodexProject(cwd)
+    await expect(readFile(join(codexProjectMemoryRoot(identity.projectId), 'pending.jsonl'), 'utf8')).rejects.toMatchObject({
+      code: 'ENOENT'
+    })
+  })
+
   it('keeps command output valid while internal runtime writes review summaries', async () => {
     const home = await createTempDir('cyrene-codex-stop-home-')
     vi.stubEnv('HOME', home)

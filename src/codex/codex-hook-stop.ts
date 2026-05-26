@@ -35,6 +35,7 @@ export interface CodexStopHookCommandOutput {
 }
 
 const DURABLE_SIGNAL = /记住|请记住|以后默认|之后默认|以后你要|以后请|from now on|please remember|remember that|default to/i
+const GLOBAL_SCOPE_SIGNAL = /所有项目|全部项目|每个项目|所有 repo|全部 repo|全局|global|all projects|every project|all repos|every repo/i
 
 export async function handleCodexStopHookCommand(): Promise<string> {
   let result: CodexStopHookResult
@@ -205,7 +206,7 @@ async function proposeExplicitMemoryCandidate(
       domain: 'procedural',
       type: 'procedural_rule',
       strength: 'hard',
-      scope: 'project',
+      scope: GLOBAL_SCOPE_SIGNAL.test(instruction) ? 'global' : 'project',
       source: 'user_explicit',
       content,
       evidence: [

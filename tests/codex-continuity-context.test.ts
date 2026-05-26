@@ -61,6 +61,44 @@ describe('Codex continuity context', () => {
     expect(JSON.stringify(context)).not.toContain('git@github.com')
   })
 
+  it('includes global active memory from the Codex global memory root in any project context', async () => {
+    const home = await createTempDir('cyrene-codex-continuity-global-home-')
+    process.env.HOME = home
+    const repo = await createTempDir('cyrene-codex-continuity-global-repo-')
+    await execFileAsync('git', ['init'], { cwd: repo })
+    await execFileAsync('git', ['remote', 'add', 'origin', 'git@github.com:example/other-project.git'], { cwd: repo })
+    const identity = await identifyCodexProject(repo)
+    const projectMemoryRoot = codexProjectMemoryRoot(identity.projectId)
+    const globalMemoryRoot = join(home, '.cyrene', 'codex', 'global', 'memory')
+    await mkdir(projectMemoryRoot, { recursive: true })
+    await mkdir(globalMemoryRoot, { recursive: true })
+    await writeFile(join(projectMemoryRoot, 'index.jsonl'), JSON.stringify(createMemory()) + '\n')
+    await writeFile(
+      join(globalMemoryRoot, 'index.jsonl'),
+      JSON.stringify(createMemory({
+        id: 'global-memory-1',
+        domain: 'procedural',
+        type: 'procedural_rule',
+        scope: 'global',
+        content: 'Specs and plans default to Chinese in all projects.',
+        normalizedKey: 'global-spec-plan-chinese'
+      })) + '\n'
+    )
+
+    const context = await getCodexContinuityContext({
+      cwd: repo,
+      userMessage: 'For this Phase memory spec plan, what durable workflow rules apply?',
+      task: 'planning'
+    })
+
+    expect(context.memory.items.map((item) => item.content)).toEqual(
+      expect.arrayContaining([
+        'Phase 3 affective memory must go through pending validation.',
+        'Specs and plans default to Chinese in all projects.'
+      ])
+    )
+  })
+
   it('returns strategy when no Codex memory exists yet', async () => {
     const home = await createTempDir('cyrene-codex-continuity-empty-home-')
     process.env.HOME = home
@@ -104,7 +142,7 @@ describe('Codex continuity context', () => {
   })
 })
 
-function createMemory(): CyreneMemory {
+function createMemory(overrides: Partial<CyreneMemory> = {}): CyreneMemory {
   return {
     id: 'memory-1',
     domain: 'project',
@@ -125,7 +163,8 @@ function createMemory(): CyreneMemory {
     },
     createdAt: '2026-05-25T00:00:00.000Z',
     updatedAt: '2026-05-25T00:00:00.000Z',
-    tags: ['codex']
+    tags: ['codex'],
+    ...overrides
   }
 }
 
