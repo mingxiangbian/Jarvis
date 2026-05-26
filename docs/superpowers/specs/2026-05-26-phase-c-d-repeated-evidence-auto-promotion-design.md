@@ -32,7 +32,7 @@ Dream-gated repeated evidence auto-promotion + bounded active memory + single MO
 - 自动 promote 不按 domain 一刀切禁止。domain 只影响阈值和写入形式。
 - Stop hook 只捕获 review-safe material 和 pending candidate，不直接写 active memory，也不直接渲染 `MODEL_PROFILE.md`。
 - `index.jsonl` 增加 active store 容量上限。超限后运行 maintenance，自动合并、替换、归档和写 tombstone。
-- `MODEL_PROFILE.md` 成为唯一 Markdown projection，同时给模型每轮读取和给人类审计。
+- `MODEL_PROFILE.md` 成为唯一 Markdown projection 类型，同时给模型每轮读取和给人类审计。
 - 旧的多 projection 文件 `MEMORY.md`、`projections/PROJECT.md`、`projections/PERSONAL.md`、`projections/AFFECT.md` 如果确认没有外部依赖，就不再保留。
 - Codex 每轮上下文由两部分组成：always-on `MODEL_PROFILE.md` 和 task-scoped retrieval from `index.jsonl`。
 - 未来独立 plugin/MCP/Skill repo 的边界在本 spec 中明确，但本阶段仍在 Cyrene 主 repo 内实现。
@@ -44,7 +44,7 @@ Dream-gated repeated evidence auto-promotion + bounded active memory + single MO
 - 保留人工 approve/reject tools，作为高风险、冲突、调试和用户主动 review 的路径。
 - 为 active `index.jsonl` 增加硬容量预算和维护流程。
 - 增加 memory maintenance：去重、supersede、consolidate、archive、expire、tombstone。
-- 将 `MODEL_PROFILE.md` 设计为唯一 Markdown projection。
+- 将 `MODEL_PROFILE.md` 设计为唯一 Markdown projection 类型。
 - 每轮默认注入 `MODEL_PROFILE.md`，让模型稳定理解用户习惯、项目规则和交互偏好。
 - 每轮仍从 `index.jsonl` 检索当前任务相关的具体 memory，避免只靠 profile 丢失细节。
 - 将 retrieval budget 从固定 `8 items / 1200 tokens` 升级为 task-aware 动态预算。
@@ -88,6 +88,12 @@ Phase C-D 后的 Codex memory root 主要文件：
 `scope: global` 的 memory 必须存入 `~/.cyrene/codex/global/memory/`，不能只存在某个 project namespace 下。`scope: project` 和 `scope: session` 仍存入当前 project memory root。
 
 `cyrene_continuity_get` 默认读取 global root + 当前 project root，再做 task-scoped retrieval。为兼容 Phase C-A/C-B 期间已经写入 project root 的历史数据，第一版还会扫描已有 project roots 中 `scope: global` 的 active memory，并在 doctor/maintenance 中迁移到 global root。
+
+`MODEL_PROFILE.md` 在 global root 和 project root 分开生成。global profile 只包含全局规则和全局偏好；project profile 只包含当前项目规则和项目偏好，不复制 global 内容。运行时组合为：
+
+```txt
+effective profile = global MODEL_PROFILE.md + current project MODEL_PROFILE.md + task retrieval
+```
 
 Phase C-D 不新增完整 session transcript store。Codex app 已经保存 session，Cyrene 只保存 Dream pass 需要的轻量、可审计材料：
 
@@ -195,7 +201,7 @@ domain 不作为单独禁止条件。domain 只调整阈值和 profile 表达方
 - deterministic classifier 先识别 secret、token、private key、完整 `.env` 值、联系方式、账户标识、健康/财务/关系等敏感类别。
 - redaction 先移除或泛化可识别细节，再让模型判断剩余内容是否适合长期记忆。
 - 模型只输出结构化分数和理由，不直接决定 promote。
-- 高敏内容默认不能自动 promote；如确实有长期价值，进入人工 review 或只保留抽象规则。
+- sensitivity 不能作为唯一 promote 或 profile gate。高敏内容如果确实有长期协作价值，必须先经过 redaction 和抽象化；secret、credential、诊断性判断仍直接拒绝。
 
 粗略分层：
 
@@ -207,10 +213,10 @@ domain 不作为单独禁止条件。domain 只调整阈值和 profile 表达方
   个人偏好、协作风格、非公开项目背景、私有路径的抽象描述
 
 高敏:
-  secrets、凭据、完整路径中的身份信息、联系方式、健康/财务/关系推断、心理诊断
+  secrets、凭据、完整路径中的身份信息、联系方式、健康/财务/关系原始细节、心理诊断
 ```
 
-高敏内容可以影响本轮 response safety，但不能自动写入 active memory 或 `MODEL_PROFILE.md`。
+高敏原文可以影响本轮 response safety，但不能原样写入 active memory 或 `MODEL_PROFILE.md`。经过 redaction/抽象化后，如果变成稳定、可表面化的协作策略，可以作为 `safe_summary` 进入 profile。
 
 ### 默认阈值
 
@@ -441,14 +447,16 @@ newline/punct:  conservative overhead
 
 ### 定位
 
-`MODEL_PROFILE.md` 是唯一 Markdown projection：
+`MODEL_PROFILE.md` 是唯一 Markdown projection 类型，但不是唯一物理文件。global root 和每个 project root 都可以各自生成一个 `MODEL_PROFILE.md`：
 
 - 给模型每轮默认读取。
 - 给人类快速审计。
-- 从 global active `index.jsonl` + 当前 project active `index.jsonl` 自动生成。
+- global `MODEL_PROFILE.md` 从 global active `index.jsonl` 自动生成。
+- project `MODEL_PROFILE.md` 从当前 project active `index.jsonl` 自动生成。
+- `cyrene_continuity_get` 运行时组合 global profile 和当前 project profile。
 - 不直接编辑。
 - 不保存 pending、rejected、expired、superseded memory。
-- 不保证包含所有 active memory；高敏或不可表面化 memory 可以留在 active store，但不进入 profile。
+- 不保证包含所有 active memory；是否进入 profile 由 `profileVisibility` 决定。
 
 文件头：
 
@@ -506,22 +514,56 @@ newline/punct:  conservative overhead
 
 `Restricted Notes`：
 
-- 只放可表面化的低敏提醒。
-- 高敏 personal、relationship、affective 内容默认不表面化，只能影响 retrieval strategy 或 response strategy。
+- 只放 profile-safe 的抽象提醒。
+- personal、relationship、affective 内容不能写原始隐私细节，只能写成可表面化的协作策略。
 - 不写诊断性心理判断。
+
+### Profile Visibility
+
+不要用 sensitivity score 做一刀切 profile gate。`MODEL_PROFILE.md` 的价值是让模型稳定理解用户习惯；如果中高敏但有长期协作价值的内容全部被挡掉，profile 会失去一部分核心功能。
+
+Phase C-D 增加 `profileVisibility`，由 deterministic classifier、redaction 和 model rubric 共同产生：
+
+```txt
+always:
+  低敏、明确、稳定、可直接表面化的规则。
+  例如 spec/plan 默认中文、常用工作流、项目编码约定。
+
+safe_summary:
+  对协作有用，但原文不适合每轮暴露。
+  renderer 必须写成抽象行为规则，不保留隐私细节或原始描述。
+
+retrieval_only:
+  不进入 always-on profile。
+  只有当前任务相关且通过 safety policy 时，才通过 retrieval 使用。
+
+never:
+  secrets、credentials、诊断性心理判断、原始隐私细节。
+  不进入 profile，也不应作为普通 retrieval memory 暴露。
+```
+
+如果 memory item 暂时没有 `profileVisibility` 字段，renderer 可用以下默认推导：
+
+- `scores.sensitivity <= 0.6` 且 `scores.safety >= 0.8`：允许进入 `always` 或 `safe_summary`。
+- procedural/project/system hard rule：优先 `always`。
+- personal/relationship/affective：默认 `safe_summary` 或 `retrieval_only`，不得保留原始敏感细节。
+- secret、credential、diagnostic affective claim：`never`。
+
+因此，sensitivity 仍参与安全判断，但不作为单独的硬过滤器。真正决定 profile 可见性的是 `profileVisibility` 和 renderer 的 safe-summary 规则。
 
 ### Renderer 排序
 
 Profile renderer 选择 active memory 时按以下优先级：
 
-1. `strength === 'hard'`
-2. `scope === 'global'`
-3. `source === 'user_explicit'` 或 `userConfirmed === true`
-4. `scores.usefulness`
-5. `scores.evidenceStrength`
-6. `scores.safety`
-7. lower `scores.sensitivity`
-8. recent `updatedAt`
+1. `profileVisibility === 'always'`
+2. `strength === 'hard'`
+3. `scope === 'global'`
+4. `source === 'user_explicit'` 或 `userConfirmed === true`
+5. `scores.usefulness`
+6. `scores.evidenceStrength`
+7. `scores.safety`
+8. `profileVisibility === 'safe_summary'`
+9. recent `updatedAt`
 
 如果 profile 超过 `maxProfileChars`：
 
@@ -530,7 +572,7 @@ Profile renderer 选择 active memory 时按以下优先级：
 - 再保留高 usefulness interaction preferences。
 - 最后截断或省略低优先级 sections。
 
-Sensitivity gate 会影响 `MODEL_PROFILE.md` 的可见性：低敏、可表面化内容可以进入 profile；中高敏内容即使已经是 active memory，也默认只参与 retrieval strategy 或 response strategy，不直接写入 profile。profile 是模型每轮默认可见内容，因此比 active store 更严格。
+profile renderer 不直接输出 `retrieval_only` 或 `never` memory。`safe_summary` memory 只能输出抽象后的 profile-safe 表达。
 
 ## Retrieval 改进
 
@@ -918,7 +960,7 @@ cyrene-continuity-mcp
 - Stop hook fail-open 行为稳定。
 - Dream-gated auto-promotion policy 有测试覆盖。
 - maintenance 有 snapshot/restore 路径。
-- `MODEL_PROFILE.md` 作为唯一 projection 已稳定。
+- `MODEL_PROFILE.md` 作为唯一 projection 类型已稳定。
 - agentmemory 冲突检测和停用流程明确。
 - 插件能在本机 Codex global 环境独立 install/doctor/uninstall。
 
@@ -933,7 +975,7 @@ cyrene-continuity-mcp
 - `index.jsonl` 不会无限增长。
 - 超预算 store 会自动维护，并保留 snapshot。
 - 旧 projection 文件没有消费方时被删除。
-- 用户能通过一个文件 `MODEL_PROFILE.md` 审计 Cyrene 当前稳定画像。
+- 用户能通过 global/project `MODEL_PROFILE.md` 审计 Cyrene 当前稳定画像。
 - 未来拆独立 repo 的边界清楚，不和 Cyrene 主项目实验模块耦合。
 
 ## Spec 自审
