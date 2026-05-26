@@ -30,9 +30,13 @@ async function createTempDir(prefix: string): Promise<string> {
   return dir
 }
 
-function cliEnv(): NodeJS.ProcessEnv {
+function cliEnv(): Record<string, string> {
   const { FORCE_COLOR: _forceColor, NO_COLOR: _noColor, ...env } = process.env
-  return { ...env, CYRENE_MEMORY_AUTO_EXTRACT: '0' }
+  return Object.fromEntries(
+    Object.entries({ ...env, CYRENE_MEMORY_AUTO_EXTRACT: '0' }).filter((entry): entry is [string, string] => {
+      return entry[1] !== undefined
+    })
+  )
 }
 
 describe('Cyrene MCP server', () => {
@@ -120,6 +124,29 @@ describe('Cyrene MCP server', () => {
 
     expect(source).toContain('promote only after explicit user approval')
     expect(source).toContain('reject only after explicit user rejection')
+  })
+
+  it('exposes Codex pending review tools through a fresh MCP server', async () => {
+    const { Client } = await import('@modelcontextprotocol/sdk/client/index.js')
+    const { StdioClientTransport } = await import('@modelcontextprotocol/sdk/client/stdio.js')
+    const client = new Client({ name: 'cyrene-mcp-test', version: '0.0.0' })
+    const transport = new StdioClientTransport({
+      command: process.execPath,
+      args: ['node_modules/tsx/dist/cli.mjs', 'src/main.ts', 'mcp-server', '--stdio'],
+      env: cliEnv()
+    })
+
+    await client.connect(transport)
+    try {
+      const result = await client.listTools()
+      const names = result.tools.map((tool) => tool.name)
+      expect(names).toContain('cyrene_memory_pending_list')
+      expect(names).toContain('cyrene_memory_pending_get')
+      expect(names).toContain('cyrene_memory_promote')
+      expect(names).toContain('cyrene_memory_reject')
+    } finally {
+      await client.close()
+    }
   })
 
   it('documents pending review behavior in the Codex continuity skill', async () => {
