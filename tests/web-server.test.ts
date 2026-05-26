@@ -1611,7 +1611,7 @@ describe('startWebServer', () => {
     await expect(readFile(join(cwd, '.cyrene', 'memory', 'index.jsonl'), 'utf8')).resolves.toBe('')
     await expect(readFile(join(cwd, '.cyrene', 'memory', 'events.jsonl'), 'utf8')).resolves.toContain('"action":"archive"')
     await expect(readFile(join(cwd, '.cyrene', 'memory', 'tombstones.jsonl'), 'utf8')).resolves.toContain('"reason":"archived"')
-    await expect(readFile(join(cwd, '.cyrene', 'memory', 'MEMORY.md'), 'utf8')).resolves.toContain('_No active memories._')
+    await expect(readFile(join(cwd, '.cyrene', 'memory', 'MODEL_PROFILE.md'), 'utf8')).resolves.toContain('# Cyrene Model Profile')
   })
 
   it('downranks active memory through the guarded control API', async () => {

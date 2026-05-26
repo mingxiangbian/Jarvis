@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -138,7 +138,7 @@ describe('Codex pending memory review', () => {
         reason: 'User approved in Codex.'
       })
     ])
-    const projection = await readFile(join(memoryRoot, 'MEMORY.md'), 'utf8')
+    const projection = await readFile(join(memoryRoot, 'MODEL_PROFILE.md'), 'utf8')
     expect(projection).toContain(candidate.content)
   })
 
@@ -315,7 +315,7 @@ describe('Codex pending memory review', () => {
     await expect(renderMemoryProjectionsFromRoot(memoryRoot)).rejects.toThrow(/non-directory memory path/)
   })
 
-  it('rejects promotion projection writes through a symlinked projections directory', async () => {
+  it('does not write legacy projections through a symlinked projections directory', async () => {
     const home = await createTempDir('cyrene-review-home-')
     vi.stubEnv('HOME', home)
     const cwd = await createTempDir('cyrene-review-project-')
@@ -324,16 +324,16 @@ describe('Codex pending memory review', () => {
     const memoryRoot = await seedPending(cwd, [candidate])
     await symlink(outside, join(memoryRoot, 'projections'))
 
-    await expect(
-      promoteCodexPendingMemory({
-        cwd,
-        id: candidate.id,
-        reviewHash: reviewHashForPendingMemory(candidate),
-        now: '2026-05-25T01:00:00.000Z'
-      })
-    ).rejects.toThrow(/projection symlink/)
+    const result = await promoteCodexPendingMemory({
+      cwd,
+      id: candidate.id,
+      reviewHash: reviewHashForPendingMemory(candidate),
+      now: '2026-05-25T01:00:00.000Z'
+    })
 
+    expect(result.result.action).toBe('promote')
     await expect(readFile(join(outside, 'MEMORY.md'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(join(memoryRoot, 'MODEL_PROFILE.md'), 'utf8')).resolves.toContain(candidate.content)
   })
 
   it('rejects promotion through a symlinked Codex project root before reading outside pending memory', async () => {
@@ -360,17 +360,18 @@ describe('Codex pending memory review', () => {
 
     await expect(readFile(join(outsideMemory, 'index.jsonl'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
     await expect(readFile(join(outsideMemory, 'events.jsonl'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
-    await expect(readFile(join(outsideMemory, 'MEMORY.md'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(join(outsideMemory, 'MODEL_PROFILE.md'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
-  it('rejects rendering projections when the projections path is a file', async () => {
+  it('renders model profile when the legacy projections path is a file', async () => {
     const memoryRoot = await createTempDir('cyrene-review-memory-root-')
     await writeFile(join(memoryRoot, 'projections'), 'not a directory', 'utf8')
 
-    await expect(renderMemoryProjectionsFromRoot(memoryRoot)).rejects.toThrow(/non-directory memory projection path/)
+    await expect(renderMemoryProjectionsFromRoot(memoryRoot)).resolves.toBeUndefined()
+    await expect(readFile(join(memoryRoot, 'MODEL_PROFILE.md'), 'utf8')).resolves.toContain('# Cyrene Model Profile')
   })
 
-  it('rejects promotion before mutation when the projections path is a file', async () => {
+  it('promotes when the legacy projections path is a file', async () => {
     const home = await createTempDir('cyrene-review-home-')
     vi.stubEnv('HOME', home)
     const cwd = await createTempDir('cyrene-review-project-')
@@ -378,34 +379,31 @@ describe('Codex pending memory review', () => {
     const memoryRoot = await seedPending(cwd, [candidate])
     await writeFile(join(memoryRoot, 'projections'), 'not a directory', 'utf8')
 
-    await expect(
-      promoteCodexPendingMemory({
-        cwd,
-        id: candidate.id,
-        reviewHash: reviewHashForPendingMemory(candidate),
-        now: '2026-05-25T01:00:00.000Z'
-      })
-    ).rejects.toThrow(/non-directory memory projection path/)
+    const result = await promoteCodexPendingMemory({
+      cwd,
+      id: candidate.id,
+      reviewHash: reviewHashForPendingMemory(candidate),
+      now: '2026-05-25T01:00:00.000Z'
+    })
 
-    await expect(readFile(join(memoryRoot, 'index.jsonl'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
-    await expect(readFile(join(memoryRoot, 'events.jsonl'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
-    await expect(readFile(join(memoryRoot, 'pending.jsonl'), 'utf8')).resolves.toContain(candidate.content)
+    expect(result.result.action).toBe('promote')
+    await expect(readFile(join(memoryRoot, 'index.jsonl'), 'utf8')).resolves.toContain(candidate.content)
+    await expect(readFile(join(memoryRoot, 'MODEL_PROFILE.md'), 'utf8')).resolves.toContain(candidate.content)
   })
 
-  it('rejects rendering projection output file symlinks without changing outside files', async () => {
+  it('rejects rendering MODEL_PROFILE.md symlinks without changing outside files', async () => {
     const memoryRoot = await createTempDir('cyrene-review-memory-root-')
     const outside = await createTempDir('cyrene-review-projection-file-outside-')
     const outsideTarget = join(outside, 'outside.md')
     await writeFile(outsideTarget, 'outside original\n', 'utf8')
-    await mkdir(join(memoryRoot, 'projections'))
-    await symlink(outsideTarget, join(memoryRoot, 'projections', 'MEMORY.md'))
+    await symlink(outsideTarget, join(memoryRoot, 'MODEL_PROFILE.md'))
 
     await expect(renderMemoryProjectionsFromRoot(memoryRoot)).rejects.toThrow(/projection.*symlink/)
 
     await expect(readFile(outsideTarget, 'utf8')).resolves.toBe('outside original\n')
   })
 
-  it('rejects promotion before mutation when a projection output file is a symlink', async () => {
+  it('rejects promotion before mutation when MODEL_PROFILE.md is a symlink', async () => {
     const home = await createTempDir('cyrene-review-home-')
     vi.stubEnv('HOME', home)
     const cwd = await createTempDir('cyrene-review-project-')
@@ -414,8 +412,7 @@ describe('Codex pending memory review', () => {
     const candidate = createPending()
     const memoryRoot = await seedPending(cwd, [candidate])
     await writeFile(outsideTarget, 'outside original\n', 'utf8')
-    await mkdir(join(memoryRoot, 'projections'))
-    await symlink(outsideTarget, join(memoryRoot, 'projections', 'MEMORY.md'))
+    await symlink(outsideTarget, join(memoryRoot, 'MODEL_PROFILE.md'))
 
     await expect(
       promoteCodexPendingMemory({
@@ -432,22 +429,20 @@ describe('Codex pending memory review', () => {
     await expect(readFile(join(memoryRoot, 'pending.jsonl'), 'utf8')).resolves.toContain(candidate.content)
   })
 
-  it('rejects rendering projection targets that are directories', async () => {
+  it('rejects rendering MODEL_PROFILE.md targets that are directories', async () => {
     const memoryRoot = await createTempDir('cyrene-review-memory-root-')
-    await mkdir(join(memoryRoot, 'projections'))
-    await mkdir(join(memoryRoot, 'projections', 'MEMORY.md'))
+    await mkdir(join(memoryRoot, 'MODEL_PROFILE.md'))
 
     await expect(renderMemoryProjectionsFromRoot(memoryRoot)).rejects.toThrow(/non-file memory projection path/)
   })
 
-  it('rejects promotion before mutation when the root projection target is a directory', async () => {
+  it('rejects promotion before mutation when MODEL_PROFILE.md is a directory', async () => {
     const home = await createTempDir('cyrene-review-home-')
     vi.stubEnv('HOME', home)
     const cwd = await createTempDir('cyrene-review-project-')
     const candidate = createPending()
     const memoryRoot = await seedPending(cwd, [candidate])
-    await mkdir(join(memoryRoot, 'projections'))
-    await mkdir(join(memoryRoot, 'MEMORY.md'))
+    await mkdir(join(memoryRoot, 'MODEL_PROFILE.md'))
 
     await expect(
       promoteCodexPendingMemory({
@@ -461,6 +456,24 @@ describe('Codex pending memory review', () => {
     await expect(readFile(join(memoryRoot, 'index.jsonl'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
     await expect(readFile(join(memoryRoot, 'events.jsonl'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
     await expect(readFile(join(memoryRoot, 'pending.jsonl'), 'utf8')).resolves.toContain(candidate.content)
+  })
+
+  it('removes legacy generated projection files after rendering model profile', async () => {
+    const memoryRoot = await createTempDir('cyrene-review-memory-root-')
+    const generated = '<!-- Generated from index.jsonl. Do not edit manually. -->\n\nold\n'
+    const oldGenerated = '<!-- Generated from .cyrene/memory/index.jsonl. Do not edit manually. -->\n\nold\n'
+    await mkdir(join(memoryRoot, 'projections'))
+    await writeFile(join(memoryRoot, 'MEMORY.md'), oldGenerated, 'utf8')
+    await writeFile(join(memoryRoot, 'projections', 'MEMORY.md'), generated, 'utf8')
+    await writeFile(join(memoryRoot, 'projections', 'PROJECT.md'), generated, 'utf8')
+    await writeFile(join(memoryRoot, 'projections', 'PERSONAL.md'), generated, 'utf8')
+    await writeFile(join(memoryRoot, 'projections', 'AFFECT.md'), generated, 'utf8')
+
+    await renderMemoryProjectionsFromRoot(memoryRoot)
+
+    await expect(readFile(join(memoryRoot, 'MODEL_PROFILE.md'), 'utf8')).resolves.toContain('# Cyrene Model Profile')
+    await expect(readFile(join(memoryRoot, 'MEMORY.md'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readdir(join(memoryRoot, 'projections'))).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
   it('returns a compact pending review notice', async () => {

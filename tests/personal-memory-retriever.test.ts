@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { renderMemoryProjections } from '../src/memory/memory-exporter.js'
 import { formatMemoryContext, retrieveMemories } from '../src/memory/memory-retriever.js'
 import { writeActiveMemories } from '../src/memory/memory-store.js'
-import type { CyreneMemory, MemoryDomain, MemoryStrength, MemoryType } from '../src/memory/types.js'
+import type { CyreneMemory, MemoryDomain, MemoryProfileVisibility, MemorySource, MemoryStrength, MemoryType } from '../src/memory/types.js'
 
 const tempDirs: string[] = []
 
@@ -20,7 +20,7 @@ afterEach(async () => {
 })
 
 describe('personal memory projections and retrieval', () => {
-  it('renders projections from active low-sensitivity memories only', async () => {
+  it('renders model profile from hard procedural and project memories', async () => {
     const cwd = await createTempDir()
     await writeActiveMemories(cwd, [
       createMemory({
@@ -29,6 +29,13 @@ describe('personal memory projections and retrieval', () => {
         type: 'project_fact',
         strength: 'hard',
         content: 'Cyrene uses API-first routing.'
+      }),
+      createMemory({
+        id: 'procedural-1',
+        domain: 'procedural',
+        type: 'procedural_rule',
+        strength: 'hard',
+        content: 'Keep provider-specific fields inside adapters.'
       }),
       createMemory({
         id: 'personal-1',
@@ -41,20 +48,25 @@ describe('personal memory projections and retrieval', () => {
 
     await renderMemoryProjections(cwd)
 
-    await expect(readFile(join(cwd, '.cyrene', 'memory', 'projections', 'MEMORY.md'), 'utf8')).resolves.toContain(
-      'User prefers direct engineering recommendations.'
-    )
-    await expect(readFile(join(cwd, '.cyrene', 'memory', 'projections', 'PROJECT.md'), 'utf8')).resolves.toContain(
-      'Cyrene uses API-first routing.'
-    )
-    await expect(readFile(join(cwd, '.cyrene', 'memory', 'MEMORY.md'), 'utf8')).resolves.toContain(
-      'Generated from .cyrene/memory/index.jsonl'
-    )
+    const profile = await readFile(join(cwd, '.cyrene', 'memory', 'MODEL_PROFILE.md'), 'utf8')
+    expect(profile).toContain('Generated from index.jsonl')
+    expect(profile).toContain('# Cyrene Model Profile')
+    expect(profile).toContain('Cyrene uses API-first routing.')
+    expect(profile).toContain('Keep provider-specific fields inside adapters.')
+    expect(profile).toContain('direct engineering recommendations')
   })
 
-  it('redacts affective projection output', async () => {
+  it('excludes retrieval-only and diagnostic affective memories from model profile', async () => {
     const cwd = await createTempDir()
     await writeActiveMemories(cwd, [
+      createMemory({
+        id: 'retrieval-only',
+        domain: 'project',
+        type: 'project_fact',
+        strength: 'soft',
+        content: 'This project fact is only useful when retrieved.',
+        profileVisibility: 'retrieval_only'
+      }),
       createMemory({
         id: 'affect-safe',
         domain: 'affective',
@@ -77,9 +89,10 @@ describe('personal memory projections and retrieval', () => {
 
     await renderMemoryProjections(cwd)
 
-    const affect = await readFile(join(cwd, '.cyrene', 'memory', 'projections', 'AFFECT.md'), 'utf8')
-    expect(affect).toContain('concrete feasibility checks')
-    expect(affect).not.toContain('anxious')
+    const profile = await readFile(join(cwd, '.cyrene', 'memory', 'MODEL_PROFILE.md'), 'utf8')
+    expect(profile).toContain('concrete feasibility checks')
+    expect(profile).not.toContain('only useful when retrieved')
+    expect(profile).not.toContain('anxious')
   })
 
   it('retrieves coding memories from project procedural and system domains', async () => {
@@ -185,6 +198,9 @@ function createMemory(input: {
   safety?: number
   sensitivity?: number
   tags?: string[]
+  source?: MemorySource
+  userConfirmed?: boolean
+  profileVisibility?: MemoryProfileVisibility
 }): CyreneMemory {
   return {
     id: input.id,
@@ -196,7 +212,7 @@ function createMemory(input: {
     content: input.content ?? 'Cyrene uses typed memory.',
     normalizedKey: input.id,
     evidence: [{ runId: 'run-1', summary: 'Test evidence.' }],
-    source: 'assistant_observed',
+    source: input.source ?? 'assistant_observed',
     scores: {
       evidenceStrength: 0.9,
       stability: 0.9,
@@ -206,6 +222,8 @@ function createMemory(input: {
     },
     createdAt: '2026-05-23T00:00:00.000Z',
     updatedAt: '2026-05-23T00:00:00.000Z',
+    userConfirmed: input.userConfirmed,
+    profileVisibility: input.profileVisibility,
     tags: input.tags ?? []
   }
 }
