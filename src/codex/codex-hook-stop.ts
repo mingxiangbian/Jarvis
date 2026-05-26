@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { createDefaultConfig, type AppConfig } from '../config.js'
 import { callModel as defaultCallModel } from '../llm-client.js'
+import { listCodexPendingMemories } from './memory-review.js'
 import { proposeCodexMemoryCandidate } from './memory-propose.js'
 import { runCodexReviewSummary, type RunCodexReviewSummaryInput } from './review-summary-runtime.js'
 import { parseTranscriptMessages, type TranscriptMessage } from './transcript.js'
@@ -24,6 +25,7 @@ export type CodexStopHookResult =
 
 export interface CodexStopHookDeps {
   callModel?: RunCodexReviewSummaryInput['callModel']
+  confirmPendingCandidateIds?: (cwd: string, candidateIds: string[]) => Promise<string[]>
   config?: AppConfig
 }
 
@@ -101,17 +103,45 @@ export async function handleCodexStopHookPayload(
   const reviewCandidateIds = review.action === 'pending' ? review.candidateIds : []
   const explicitPending = explicitResult?.result.action === 'pending' ? explicitResult.result : undefined
   const explicitCandidateId = explicitPending?.candidateId
-  const candidateIds = [...reviewCandidateIds, ...(explicitCandidateId === undefined ? [] : [explicitCandidateId])]
+  const proposedCandidateIds = [...reviewCandidateIds, ...(explicitCandidateId === undefined ? [] : [explicitCandidateId])]
+  const candidateIds = proposedCandidateIds.length === 0
+    ? []
+    : await confirmPendingCandidateIds(deps.confirmPendingCandidateIds, cwd, proposedCandidateIds)
+  const confirmedExplicitCandidateId =
+    explicitCandidateId !== undefined && candidateIds.includes(explicitCandidateId) ? explicitCandidateId : undefined
   const summaryId = 'summaryId' in review ? review.summaryId : undefined
 
   if (candidateIds.length > 0) {
     return {
       action: 'pending',
-      candidateId: explicitCandidateId,
+      candidateId: confirmedExplicitCandidateId,
       candidateIds,
-      reason: explicitPending?.reason ?? 'Codex review summary proposed memory candidates.',
+      reason: confirmedExplicitCandidateId === undefined
+        ? 'Codex review summary proposed memory candidates.'
+        : explicitPending?.reason ?? 'Codex review summary proposed memory candidates.',
       summaryId
     }
+  }
+
+  if (proposedCandidateIds.length > 0) {
+    if (review.action === 'pending') {
+      return {
+        action: 'summary',
+        summaryId: review.summaryId,
+        reason: 'Codex review summary written; pending candidates were not confirmed in memory storage.'
+      }
+    }
+    if (review.action === 'summary') {
+      return {
+        action: 'summary',
+        summaryId: review.summaryId,
+        reason: 'Codex review summary written; pending candidates were not confirmed in memory storage.'
+      }
+    }
+    if (review.action === 'summary_failed') {
+      return { action: 'summary_failed', summaryId: review.summaryId, reason: review.reason }
+    }
+    return { action: 'noop', reason: 'Pending memory candidates were not confirmed in memory storage.' }
   }
 
   if (review.action === 'summary') {
@@ -124,6 +154,42 @@ export async function handleCodexStopHookPayload(
     return { action: 'noop', reason: review.reason }
   }
   return { action: 'noop', reason: 'Codex review summary proposed no memory candidates.' }
+}
+
+async function confirmPendingCandidateIds(
+  confirm: CodexStopHookDeps['confirmPendingCandidateIds'],
+  cwd: string,
+  candidateIds: string[]
+): Promise<string[]> {
+  try {
+    const confirmed = await (confirm ?? filterExistingPendingCandidateIds)(cwd, candidateIds)
+    const confirmedSet = new Set(confirmed)
+    return uniqueInOrder(candidateIds).filter((id) => confirmedSet.has(id))
+  } catch {
+    return []
+  }
+}
+
+export async function filterExistingPendingCandidateIds(cwd: string, candidateIds: string[]): Promise<string[]> {
+  const ids = uniqueInOrder(candidateIds)
+  if (ids.length === 0) {
+    return []
+  }
+
+  const pending = await listCodexPendingMemories({ cwd })
+  const existing = new Set(pending.pending.map((candidate) => candidate.id))
+  return ids.filter((id) => existing.has(id))
+}
+
+function uniqueInOrder(values: string[]): string[] {
+  const seen = new Set<string>()
+  return values.filter((value) => {
+    if (seen.has(value)) {
+      return false
+    }
+    seen.add(value)
+    return true
+  })
 }
 
 async function proposeExplicitMemoryCandidate(

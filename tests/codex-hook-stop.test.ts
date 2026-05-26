@@ -1,11 +1,16 @@
 import { spawn } from 'node:child_process'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { codexProjectMemoryRoot } from '../src/codex/codex-memory-root.js'
-import { formatCodexStopHookCommandOutput, handleCodexStopHookPayload } from '../src/codex/codex-hook-stop.js'
+import {
+  filterExistingPendingCandidateIds,
+  formatCodexStopHookCommandOutput,
+  handleCodexStopHookPayload
+} from '../src/codex/codex-hook-stop.js'
 import { identifyCodexProject } from '../src/codex/project-id.js'
+import type { PendingMemory } from '../src/memory/types.js'
 
 const originalHome = process.env.HOME
 const tempDirs: string[] = []
@@ -20,6 +25,33 @@ async function createTempDir(prefix: string): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), prefix))
   tempDirs.push(dir)
   return dir
+}
+
+function createPending(id: string): PendingMemory {
+  return {
+    id,
+    domain: 'procedural',
+    type: 'procedural_rule',
+    strength: 'hard',
+    scope: 'project',
+    status: 'pending',
+    content: 'Confirmed pending memory must exist in the store before review.',
+    normalizedKey: `confirmed-pending-${id}`,
+    evidence: [{ runId: 'run-1', summary: 'Test pending candidate.' }],
+    source: 'user_explicit',
+    scores: {
+      evidenceStrength: 0.9,
+      stability: 0.9,
+      usefulness: 0.8,
+      safety: 0.95,
+      sensitivity: 0.1
+    },
+    seenCount: 1,
+    firstSeenAt: '2026-05-26T00:00:00.000Z',
+    lastSeenAt: '2026-05-26T00:00:00.000Z',
+    expiresAt: '2026-06-25T00:00:00.000Z',
+    tags: ['codex-hook']
+  }
 }
 
 async function runStopHookCommand(input: string): Promise<{ code: number | null; stderr: string; stdout: string }> {
@@ -147,6 +179,53 @@ describe('Codex Stop hook runtime', () => {
     )
 
     expect(result.action).toBe('pending')
+  })
+
+  it('does not return pending when proposed candidate ids are not confirmed in pending storage', async () => {
+    const home = await createTempDir('cyrene-codex-stop-home-')
+    vi.stubEnv('HOME', home)
+    const cwd = await createTempDir('cyrene-codex-stop-project-')
+    const transcript = join(cwd, 'transcript.jsonl')
+    await writeFile(transcript, JSON.stringify({ role: 'user', content: '请总结这次协作。' }) + '\n')
+
+    const result = await handleCodexStopHookPayload(
+      { cwd, transcript_path: transcript, session_id: 's1', turn_id: 't3' },
+      {
+        callModel: async () => ({
+          content: JSON.stringify({
+            summary: '用户希望总结协作。',
+            candidates: [
+              {
+                domain: 'project',
+                type: 'project_fact',
+                content: 'This candidate should be confirmed before review.'
+              }
+            ]
+          }),
+          toolCalls: []
+        }),
+        confirmPendingCandidateIds: async () => []
+      }
+    )
+
+    expect(result).toMatchObject({
+      action: 'summary',
+      reason: 'Codex review summary written; pending candidates were not confirmed in memory storage.'
+    })
+  })
+
+  it('filters pending candidate ids through the actual pending storage', async () => {
+    const home = await createTempDir('cyrene-codex-stop-home-')
+    vi.stubEnv('HOME', home)
+    const cwd = await createTempDir('cyrene-codex-stop-project-')
+    const identity = await identifyCodexProject(cwd)
+    const memoryRoot = codexProjectMemoryRoot(identity.projectId)
+    await mkdir(memoryRoot, { recursive: true })
+    await writeFile(join(memoryRoot, 'pending.jsonl'), `${JSON.stringify(createPending('pending-1'))}\n`)
+
+    await expect(filterExistingPendingCandidateIds(cwd, ['pending-1', 'missing-1', 'pending-1'])).resolves.toEqual([
+      'pending-1'
+    ])
   })
 
   it('formats command output as valid Codex Stop hook JSON', () => {

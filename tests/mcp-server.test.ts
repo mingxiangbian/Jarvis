@@ -161,6 +161,7 @@ describe('Cyrene MCP server', () => {
     expect(source).toContain('cyrene_memory_reject')
     expect(source).toContain('show pending candidates as review candidates')
     expect(source).toContain('Do not wait for the user to ask to review them')
+    expect(source).toContain('Only present candidates that are confirmed by pending list/get')
     expect(source).toContain('Pending memory candidates are not active continuity memory')
   })
 
