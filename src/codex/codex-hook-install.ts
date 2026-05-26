@@ -21,6 +21,8 @@ interface CodexHooksConfig {
   [name: string]: unknown
 }
 
+const CODEX_STOP_HOOK_TIMEOUT_SECONDS = 30
+
 export function codexStopHookCommand(): string {
   const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
   return `npm --prefix ${repoRoot} run --silent dev -- codex hook stop`
@@ -59,13 +61,27 @@ export function mergeStopHookConfig(existing: unknown): CodexHooksConfig {
   const hooks = isRecord(config.hooks) ? { ...config.hooks } : {}
   const stop = Array.isArray(hooks.Stop) ? [...hooks.Stop] as CodexHookGroup[] : []
   const command = codexStopHookCommand()
-  const alreadyConfigured = stop.some((entry) =>
-    Array.isArray(entry?.hooks) && entry.hooks.some((hook) => hook?.type === 'command' && hook.command === command)
-  )
+  let alreadyConfigured = false
+  const mergedStop = stop.map((entry) => {
+    if (!Array.isArray(entry?.hooks)) {
+      return entry
+    }
+
+    return {
+      ...entry,
+      hooks: entry.hooks.map((hook) => {
+        if (hook?.type === 'command' && hook.command === command) {
+          alreadyConfigured = true
+          return { ...hook, timeout: CODEX_STOP_HOOK_TIMEOUT_SECONDS }
+        }
+        return hook
+      })
+    }
+  })
 
   if (!alreadyConfigured) {
-    stop.push({
-      hooks: [{ type: 'command', command, timeout: 5 }]
+    mergedStop.push({
+      hooks: [{ type: 'command', command, timeout: CODEX_STOP_HOOK_TIMEOUT_SECONDS }]
     })
   }
 
@@ -73,7 +89,7 @@ export function mergeStopHookConfig(existing: unknown): CodexHooksConfig {
     ...config,
     hooks: {
       ...hooks,
-      Stop: stop
+      Stop: mergedStop
     }
   }
 }

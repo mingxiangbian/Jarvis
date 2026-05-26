@@ -30,6 +30,16 @@ describe('Codex Stop hook install', () => {
   it('merges with an existing Stop hook and stays idempotent', async () => {
     const home = await createTempDir('cyrene-codex-hook-home-')
     const hooksPath = join(home, '.codex', 'hooks.json')
+    const output = await formatCodexStopHookInstall({ hooksPath, dryRun: true })
+    const dryRunConfig = JSON.parse(output.slice(output.indexOf('{'))) as {
+      hooks: { Stop: Array<{ hooks: Array<{ command: string }> }> }
+    }
+    const cyreneCommand = dryRunConfig.hooks.Stop.flatMap((entry) => entry.hooks).find((hook) =>
+      hook.command.includes('codex hook stop')
+    )?.command
+
+    expect(cyreneCommand).toBeDefined()
+
     await mkdir(join(home, '.codex'), { recursive: true })
     await writeFile(
       hooksPath,
@@ -39,6 +49,9 @@ describe('Codex Stop hook install', () => {
             Stop: [
               {
                 hooks: [{ type: 'command', command: '/Users/phoenix/.codex/hooks/task_done_sound.sh', timeout: 5 }]
+              },
+              {
+                hooks: [{ type: 'command', command: cyreneCommand, timeout: 5 }]
               }
             ]
           }
@@ -52,10 +65,27 @@ describe('Codex Stop hook install', () => {
     await installCodexStopHook({ hooksPath })
 
     const parsed = JSON.parse(await readFile(hooksPath, 'utf8')) as {
-      hooks: { Stop: Array<{ hooks: Array<{ command: string }> }> }
+      hooks: { Stop: Array<{ hooks: Array<{ command: string; timeout: number }> }> }
     }
-    const commands = parsed.hooks.Stop.flatMap((entry) => entry.hooks.map((hook) => hook.command))
+    const installedHooks = parsed.hooks.Stop.flatMap((entry) => entry.hooks)
+    const commands = installedHooks.map((hook) => hook.command)
     expect(commands).toContain('/Users/phoenix/.codex/hooks/task_done_sound.sh')
     expect(commands.filter((command) => command.includes('codex hook stop'))).toHaveLength(1)
+    expect(installedHooks.find((hook) => hook.command.includes('codex hook stop'))?.timeout).toBe(30)
+  })
+
+  it('installs the Cyrene Stop hook with a 30 second timeout', async () => {
+    const home = await createTempDir('cyrene-codex-hook-timeout-home-')
+    const hooksPath = join(home, '.codex', 'hooks.json')
+
+    await installCodexStopHook({ hooksPath })
+
+    const parsed = JSON.parse(await readFile(hooksPath, 'utf8')) as {
+      hooks: { Stop: Array<{ hooks: Array<{ command: string; timeout: number }> }> }
+    }
+    const cyreneHook = parsed.hooks.Stop.flatMap((entry) => entry.hooks).find((hook) =>
+      hook.command.includes('codex hook stop')
+    )
+    expect(cyreneHook?.timeout).toBe(30)
   })
 })
