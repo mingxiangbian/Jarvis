@@ -115,8 +115,11 @@ describe('cyrene codex CLI', () => {
     expect(result.stderr).toBe('')
     expect(result.stdout).toContain('Cyrene Codex Doctor')
     expect(result.stdout).toContain('cyrene mcp: configured')
+    expect(result.stdout).toContain('mcp command: cyrene mcp-server --stdio')
+    expect(result.stdout).toContain('mcp command freshness: stale or external')
     expect(result.stdout).toContain('agentmemory: enabled')
     expect(result.stdout).toContain('status: not ready')
+    expect(result.stdout).toContain('action: rerun codex install --dev from the intended repo')
   })
 
   it('doctor is not ready until the Cyrene skill is registered', async () => {
@@ -374,6 +377,43 @@ describe('cyrene codex CLI', () => {
     expect(result.stdout).toContain('dream due: yes')
     expect(result.stdout).toContain('last dream: 2026-05-25T00:00:00.000Z')
     expect(result.stdout).toContain('auto promote: enabled')
+  })
+
+  it('doctor reports pending counts and current repo MCP command freshness', async () => {
+    const home = await createTempDir('cyrene-codex-cli-doctor-pending-home-')
+    process.env.HOME = home
+    const repoRoot = process.cwd()
+    const configPath = join(home, '.codex-config.toml')
+    await writeFile(
+      configPath,
+      [
+        '[mcp_servers.cyrene]',
+        'command = "npm"',
+        `args = ["--prefix", ${JSON.stringify(repoRoot)}, "run", "--silent", "dev", "--", "mcp-server", "--stdio"]`,
+        'enabled = true'
+      ].join('\n')
+    )
+    const globalMemoryRoot = codexGlobalMemoryRoot()
+    const globalPending = {
+      ...createPending(),
+      id: 'global-pending-1',
+      scope: 'global' as const,
+      normalizedKey: 'global-pending-count-diagnostic'
+    }
+    await mkdir(globalMemoryRoot, { recursive: true })
+    await writeFile(join(globalMemoryRoot, 'pending.jsonl'), `${JSON.stringify(globalPending)}\n`)
+
+    const result = await execFileAsync(
+      process.execPath,
+      ['node_modules/tsx/dist/cli.mjs', 'src/main.ts', 'codex', 'doctor', '--config', configPath],
+      { env: cliEnv(home) }
+    )
+
+    expect(result.stderr).toBe('')
+    expect(result.stdout).toContain('global pending: 1')
+    expect(result.stdout).toContain('project pending: 0')
+    expect(result.stdout).toContain(`mcp command: npm --prefix ${repoRoot} run --silent dev -- mcp-server --stdio`)
+    expect(result.stdout).toContain('mcp command freshness: current repo')
   })
 
   it('runs memory dream from the CLI', async () => {

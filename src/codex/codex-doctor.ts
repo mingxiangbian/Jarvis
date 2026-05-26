@@ -1,10 +1,14 @@
 import { access, readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { createDefaultConfig } from '../config.js'
 import { readModelProfileFromRootIfExists } from '../memory/model-profile.js'
+import { readPendingMemoriesFromRoot } from '../memory/memory-store.js'
 import {
+  codexGlobalMemoryRoot,
   codexGlobalRoot,
+  codexProjectMemoryRoot,
   getReadableCodexGlobalMemoryRoot,
   getReadableCodexProjectMemoryRoot
 } from './codex-memory-root.js'
@@ -15,7 +19,13 @@ import { identifyCodexProject } from './project-id.js'
 export async function formatCodexDoctor(input: { cwd: string; configPath?: string }): Promise<string> {
   const configPath = input.configPath ?? join(homedir(), '.codex', 'config.toml')
   const configText = await readOptional(configPath)
-  const cyreneConfigured = configText.includes('[mcp_servers.cyrene]')
+  const cyreneMcpBlock = readTomlBlock(configText, '[mcp_servers.cyrene]')
+  const cyreneConfigured = cyreneMcpBlock !== undefined
+  const cyreneMcpCommand = cyreneMcpBlock === undefined ? undefined : readDoctorMcpCommand(cyreneMcpBlock)
+  const mcpCommandFreshness = cyreneMcpCommand === undefined ? undefined : readDoctorMcpCommandFreshness(cyreneMcpCommand)
+  const mcpCommandAction = mcpCommandFreshness === 'stale or external'
+    ? '  action: rerun codex install --dev from the intended repo'
+    : undefined
   const agentmemoryEnabled = hasEnabledMcpServer(configText, 'agentmemory')
   const skillPath = join(homedir(), '.agents', 'skills', 'cyrene-continuity', 'SKILL.md')
   const skillExists = await pathExists(skillPath)
@@ -41,6 +51,9 @@ export async function formatCodexDoctor(input: { cwd: string; configPath?: strin
     'codex:',
     `  config: ${configText === '' ? 'missing' : configPath}`,
     `  cyrene mcp: ${cyreneConfigured ? 'configured' : 'missing'}`,
+    cyreneMcpCommand === undefined ? undefined : `  mcp command: ${formatDoctorMcpCommand(cyreneMcpCommand)}`,
+    mcpCommandFreshness === undefined ? undefined : `  mcp command freshness: ${mcpCommandFreshness}`,
+    mcpCommandAction,
     `  agentmemory: ${agentmemoryEnabled ? 'enabled' : 'disabled'}`,
     `  stop hook: ${stopHookConfigured ? 'configured' : 'missing'}`,
     stopHookConfigured ? undefined : '  advisory: optional Stop hook is not installed',
@@ -57,7 +70,9 @@ export async function formatCodexDoctor(input: { cwd: string; configPath?: strin
     '',
     'memory:',
     `  global profile: ${memoryState.globalProfilePresent ? 'present' : 'missing'}`,
+    `  global pending: ${memoryState.globalPendingCount}`,
     `  project profile: ${memoryState.projectProfilePresent ? 'present' : 'missing'}`,
+    `  project pending: ${memoryState.projectPendingCount}`,
     `  dream due: ${memoryState.dreamDue ? 'yes' : 'no'}`,
     `  last dream: ${memoryState.lastDreamAt ?? 'never'}`,
     `  auto promote: ${config.memoryAutoPromoteEnabled ? 'enabled' : 'disabled'}`
@@ -66,34 +81,119 @@ export async function formatCodexDoctor(input: { cwd: string; configPath?: strin
 
 interface DoctorMemoryState {
   globalProfilePresent: boolean
+  globalPendingCount: number
   projectProfilePresent: boolean
+  projectPendingCount: number
   dreamDue: boolean
   lastDreamAt?: string
 }
 
 async function readDoctorMemoryState(projectId: string): Promise<DoctorMemoryState> {
-  const [globalRoot, projectRoot] = await Promise.all([
-    getReadableCodexGlobalMemoryRoot(),
-    getReadableCodexProjectMemoryRoot(projectId)
-  ])
-  const [globalProfilePresent, projectProfilePresent, dreamState] = await Promise.all([
+  const globalRoot = (await getReadableCodexGlobalMemoryRoot()) ?? codexGlobalMemoryRoot()
+  const projectRoot = (await getReadableCodexProjectMemoryRoot(projectId)) ?? codexProjectMemoryRoot(projectId)
+  const [globalProfilePresent, globalPending, projectProfilePresent, projectPending, dreamState] = await Promise.all([
     profilePresent(globalRoot),
+    readPendingMemoriesFromRoot(globalRoot),
     profilePresent(projectRoot),
-    projectRoot === null ? Promise.resolve(undefined) : readCodexMemoryDreamState(projectRoot)
+    readPendingMemoriesFromRoot(projectRoot),
+    readCodexMemoryDreamState(projectRoot)
   ])
   return {
     globalProfilePresent,
+    globalPendingCount: globalPending.length,
     projectProfilePresent,
+    projectPendingCount: projectPending.length,
     dreamDue: dreamState?.dreamDue === true,
     lastDreamAt: dreamState?.lastDreamAt
   }
 }
 
-async function profilePresent(memoryRoot: string | null): Promise<boolean> {
-  if (memoryRoot === null) {
-    return false
-  }
+async function profilePresent(memoryRoot: string): Promise<boolean> {
   return (await readModelProfileFromRootIfExists(memoryRoot)) !== undefined
+}
+
+interface DoctorMcpCommand {
+  command: string
+  args: string[]
+}
+
+type DoctorMcpCommandFreshness = 'current repo' | 'stale or external'
+
+function readDoctorMcpCommand(block: string): DoctorMcpCommand | undefined {
+  const command = readTomlStringValue(block, 'command')
+  if (command === undefined) {
+    return undefined
+  }
+  return {
+    command,
+    args: readTomlStringArrayValue(block, 'args') ?? []
+  }
+}
+
+function readDoctorMcpCommandFreshness(mcpCommand: DoctorMcpCommand): DoctorMcpCommandFreshness {
+  return [mcpCommand.command, ...mcpCommand.args].some(referencesCurrentRepoPath)
+    ? 'current repo'
+    : 'stale or external'
+}
+
+function referencesCurrentRepoPath(value: string): boolean {
+  const repoRoot = currentRepoRoot()
+  return value === repoRoot || value.endsWith(`=${repoRoot}`) || value.startsWith(`${repoRoot}/`) || value.includes(`${repoRoot}/`)
+}
+
+function currentRepoRoot(): string {
+  return resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
+}
+
+function formatDoctorMcpCommand(mcpCommand: DoctorMcpCommand): string {
+  return [mcpCommand.command, ...mcpCommand.args].map(formatCommandPart).join(' ')
+}
+
+function formatCommandPart(value: string): string {
+  return /^[A-Za-z0-9_./:@%+=,-]+$/.test(value) ? value : JSON.stringify(value)
+}
+
+function readTomlStringValue(block: string, key: string): string | undefined {
+  const value = readTomlAssignmentValue(block, key)
+  if (value === undefined) {
+    return undefined
+  }
+  return parseTomlString(value)
+}
+
+function readTomlStringArrayValue(block: string, key: string): string[] | undefined {
+  const value = readTomlAssignmentValue(block, key)
+  if (value === undefined) {
+    return undefined
+  }
+  try {
+    const parsed: unknown = JSON.parse(value)
+    return Array.isArray(parsed) && parsed.every((item): item is string => typeof item === 'string')
+      ? parsed
+      : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function readTomlAssignmentValue(block: string, key: string): string | undefined {
+  const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return block.match(new RegExp(`^\\s*${escapedKey}\\s*=\\s*(.+?)\\s*$`, 'm'))?.[1]?.trim()
+}
+
+function parseTomlString(value: string): string | undefined {
+  if (value.startsWith('"')) {
+    try {
+      const parsed: unknown = JSON.parse(value)
+      return typeof parsed === 'string' ? parsed : undefined
+    } catch {
+      return undefined
+    }
+  }
+  if (value.startsWith("'") && value.endsWith("'")) {
+    return value.slice(1, -1)
+  }
+  return undefined
 }
 
 function hasEnabledMcpServer(configText: string, name: string): boolean {
