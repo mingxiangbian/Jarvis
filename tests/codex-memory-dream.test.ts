@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { setTimeout as delay } from 'node:timers/promises'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { codexGlobalMemoryRoot, codexProjectMemoryRoot } from '../src/codex/codex-memory-root.js'
 import { runCodexMemoryDream, testOnlyDreamLock } from '../src/codex/memory-dream.js'
@@ -152,6 +153,40 @@ describe('Codex memory dream runtime', () => {
     expect(pending[0]?.seenCount).toBe(2)
     const events = parseJsonLines<MemoryEvent>(await readFile(join(memoryRoot, 'events.jsonl'), 'utf8'))
     expect(events).toContainEqual(expect.objectContaining({ action: 'audit', details: expect.objectContaining({ stage: 'light' }) }))
+  })
+
+  it('light re-reads pending after waiting for the maintenance lock', async () => {
+    const home = await createTempDir('cyrene-dream-home-')
+    vi.stubEnv('HOME', home)
+    vi.stubEnv('CYRENE_MEMORY_MAINTENANCE_LOCK_TIMEOUT_MS', '1000')
+    const cwd = await createTempDir('cyrene-dream-project-')
+    const first = createPending()
+    const second = createPending({
+      id: 'pending-2',
+      evidence: [{ runId: 'run-2', sessionId: 'session-2', evidenceGroupId: 'group-2', summary: 'Second evidence.' }],
+      lastSeenAt: '2026-05-25T01:00:00.000Z'
+    })
+    const memoryRoot = await seedProjectPending(cwd, [first])
+    const lockDir = join(memoryRoot, '.maintenance.lock')
+    await mkdir(lockDir)
+
+    let settled = false
+    const dream = runCodexMemoryDream({ cwd, stage: 'light', now: '2026-05-26T00:00:00.000Z' })
+      .finally(() => {
+        settled = true
+      })
+
+    await delay(50)
+    expect(settled).toBe(false)
+
+    await writeFile(join(memoryRoot, 'pending.jsonl'), [first, second].map((item) => JSON.stringify(item)).join('\n') + '\n')
+    await rm(lockDir, { recursive: true, force: true })
+    await dream
+
+    const pending = parseJsonLines<PendingMemory>(await readFile(join(memoryRoot, 'pending.jsonl'), 'utf8'))
+    expect(pending).toHaveLength(1)
+    expect(pending[0]?.seenCount).toBe(2)
+    expect(pending[0]?.evidence.map((item) => item.runId)).toEqual(['run-1', 'run-2'])
   })
 
   it('rem computes distinct evidence and proposed action without writing active memory', async () => {

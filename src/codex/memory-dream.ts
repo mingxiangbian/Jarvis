@@ -176,26 +176,30 @@ async function runLightDreamRoot(
   now: string,
   intervalHours: number
 ): Promise<CodexMemoryDreamResult['roots'][number]> {
-  const pending = await readPendingMemoriesFromRoot(memoryRoot)
-  const merged = mergePendingDuplicates(pending)
-  if (merged.changed) {
-    await writePendingMemoriesFromRoot(memoryRoot, merged.pending)
-  }
-  await appendMemoryEventFromRoot(memoryRoot, {
-    id: randomUUID(),
-    action: 'audit',
-    at: now,
-    reason: 'Codex memory dream light pass audited pending memory.',
-    details: { stage, pendingCount: merged.pending.length, mergedDuplicates: pending.length - merged.pending.length }
+  await assertMemoryMaintenanceTargetsSafeFromRoot(memoryRoot)
+  return withMemoryMaintenanceLockFromRoot(memoryRoot, async (lockedRoot) => {
+    await assertMemoryMaintenanceTargetsSafeFromRoot(lockedRoot)
+    const pending = await readPendingMemoriesFromRoot(lockedRoot)
+    const merged = mergePendingDuplicates(pending)
+    if (merged.changed) {
+      await writePendingMemoriesFromRoot(lockedRoot, merged.pending)
+    }
+    await appendMemoryEventFromRoot(lockedRoot, {
+      id: randomUUID(),
+      action: 'audit',
+      at: now,
+      reason: 'Codex memory dream light pass audited pending memory.',
+      details: { stage, pendingCount: merged.pending.length, mergedDuplicates: pending.length - merged.pending.length }
+    })
+    await writeDreamSuccess(lockedRoot, now, intervalHours)
+    return {
+      memoryRoot: lockedRoot,
+      stage,
+      promoted: 0,
+      rejected: 0,
+      keptPending: merged.pending.length
+    }
   })
-  await writeDreamSuccess(memoryRoot, now, intervalHours)
-  return {
-    memoryRoot,
-    stage,
-    promoted: 0,
-    rejected: 0,
-    keptPending: merged.pending.length
-  }
 }
 
 async function runRemDreamRoot(
