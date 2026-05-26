@@ -46,16 +46,17 @@ D-C Local Codex cutover + compatibility cleanup
 - 让 `cyrene_continuity_get.pendingReview` 正确统计 global root + 当前 project root 的 pending candidates。
 - 让 `cyrene_memory_pending_list/get/promote/reject` 能正确操作 global pending candidates。
 - 新建独立 repo，承载 Codex continuity MCP / Skill / hook / memory runtime。
+- 为新 repo 创建 GitHub remote，并在本机验证通过后 push。
 - 独立 repo 继续读写现有 `~/.cyrene/codex/` 数据，不迁移用户 memory。
 - 本机 Codex 从 Cyrene 主 repo bridge 切换到独立 repo bridge。
 - 更新 `cyrene-memory-dream-deep` automation，让它调用新 repo command。
-- 保留旧 Cyrene repo 的兼容 shim 或明确回滚命令，直到 cutover 验证通过。
+- cutover 验证通过且确认本机配置不再引用旧 bridge 后，删除 Cyrene 主 repo 中的 Codex bridge 代码。
 - 文档化新 repo 的安装、doctor、MCP、hook、Dream Deep、数据路径和故障排查方式。
 
 ## Non-Goals
 
 - 不发布 public plugin marketplace。
-- 不把新 repo 推到远端，除非用户之后明确要求。
+- 不发布 npm package 或 public plugin marketplace；GitHub remote 只作为 repo 归档和后续协作入口。
 - 不迁移 `~/.cyrene/codex/` 下的用户数据。
 - 不改变 `index.jsonl`、`pending.jsonl`、`events.jsonl`、`tombstones.jsonl`、`MODEL_PROFILE.md` 的文件格式。
 - 不改变 Dream Deep promotion 阈值。
@@ -63,7 +64,7 @@ D-C Local Codex cutover + compatibility cleanup
 - 不实现 Web review UI。
 - 不实现 Codex native permission-style approve/reject popup。
 - 不把 Cyrene Web UI、Tauri desktop、experimental agent loop、evolution system 拆入独立 repo。
-- 不删除 Cyrene 主 repo 中的 bridge 代码，直到新 repo cutover 被验证并由用户确认。
+- 不在 cutover 前删除 Cyrene 主 repo 中的 bridge 代码。
 
 ## Phase D-A: Readiness And Global Pending Fix
 
@@ -166,7 +167,7 @@ cyrene-continuity
 /Users/phoenix/Assistant/cyrene-continuity
 ```
 
-Phase D-B 只创建本地 git repo，不 push 远端。
+Phase D-B 创建本地 git repo，并创建 GitHub remote。remote 创建后先完成本地验证，再 push 初始版本。
 
 ### Package Shape
 
@@ -257,6 +258,16 @@ experimental provider/runtime features
 
 Phase D-B 不复制、不移动、不改写用户 memory 数据。任何 migration 都必须是显式 command，且不属于本阶段。
 
+### GitHub Remote
+
+Phase D-B 创建 GitHub remote：
+
+```txt
+github.com/mingxiangbian/cyrene-continuity
+```
+
+如果 GitHub CLI / connector 要求选择 visibility，默认使用 private。是否改成 public 留给后续发布阶段决定。
+
 ## Phase D-C: Local Cutover
 
 ### Codex MCP Cutover
@@ -316,7 +327,16 @@ Cutover 后必须保留回滚说明：
 - 恢复 Stop hook command 到 Cyrene 主 repo。
 - 恢复 Dream Deep automation command 到 Cyrene 主 repo。
 
-不删除旧 bridge 代码，直到用户确认新 repo 运行稳定。
+删除旧 bridge 代码前，必须先确认本机不再引用旧 repo bridge。至少检查：
+
+```txt
+~/.codex/config.toml
+~/.codex/hooks.json
+~/.agents/skills/cyrene-continuity
+~/.codex/automations/*/automation.toml
+```
+
+如果仍有任何引用 `/Users/phoenix/Assistant/Cyrene` 的 MCP / Skill / hook / Dream Deep command，不能删除旧 bridge。全部引用切到 `/Users/phoenix/Assistant/cyrene-continuity` 且验证通过后，可以删除 Cyrene 主 repo 中的 Codex bridge 代码。
 
 ## Verification
 
@@ -366,6 +386,7 @@ Phase D ABC 完成时必须满足：
 
 - 当前 Cyrene repo 的 D-A 修复已测试通过。
 - 新 repo 已创建为本地 git repo。
+- 新 repo 已创建 GitHub remote，并成功 push 初始版本。
 - 新 repo 可以独立安装依赖、typecheck、test。
 - 新 repo 可以启动 MCP server。
 - 新 repo 可以读写现有 `~/.cyrene/codex/` memory roots。
@@ -373,7 +394,8 @@ Phase D ABC 完成时必须满足：
 - 真实 global pending 在新 repo MCP 视图中可见。
 - project pending 和 global pending 不会写错 root。
 - 旧 Cyrene repo 保留可回滚路径。
-- 不发布远端，不删除旧代码，除非用户另行确认。
+- 删除旧 bridge 前已经确认本机 MCP / Skill / hook / automation 不再引用旧 Cyrene repo。
+- 旧 Cyrene repo 中的 Codex bridge 代码在 cutover 验证通过后删除；不删除 Cyrene 主 repo 的其他功能代码。
 
 ## Risks
 
@@ -389,12 +411,12 @@ Phase D ABC 完成时必须满足：
 - 新 repo 不迁移用户数据，只读写现有 `~/.cyrene/codex/`。
 - Cutover 前后都跑 doctor。
 - automation 最后改，避免新 command 未验证时影响每日任务。
-- 保留旧 repo bridge 作为 rollback。
+- 旧 repo bridge 只保留到 cutover 验证完成；删除前必须完成本机引用扫描。
 
-## Open Questions
+## Resolved Decisions
 
-1. 新 repo 名称是否确定为 `cyrene-continuity`？
-2. 新 repo 是否需要立刻创建 GitHub remote，还是先只保留本地 repo？
-3. Phase D-C cutover 后，旧 Cyrene repo 的 Codex bridge 代码是保留 shim，还是后续 Phase D-D 再删除？
+1. 新 repo 名称确定为 `cyrene-continuity`。
+2. Phase D-B 创建 GitHub remote，并在本地验证通过后 push 初始版本。
+3. Phase D-C cutover 后，如果本机 MCP / Skill / hook / automation 已全部切到新 repo，删除旧 Cyrene repo 中的 Codex bridge 代码；如果仍有引用，先停下修 cutover，不删除。
 
-这些问题中，只有第 1 个会影响 D-B scaffold 的路径和 package 名。默认答案是 `cyrene-continuity`。
+当前检查结果显示，本机现在仍有多处引用旧 Cyrene repo bridge，因此不能现在删除。删除只能发生在 D-C cutover 和验证之后。
