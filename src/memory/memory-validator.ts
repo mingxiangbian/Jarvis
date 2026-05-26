@@ -167,7 +167,7 @@ export function evaluatePendingPromotion(candidate: PendingMemory, now?: string)
   if (candidate.promoteAfter !== undefined && now !== undefined && candidate.promoteAfter > now) {
     return pendingResult('Memory candidate promoteAfter has not elapsed', count)
   }
-  if (hasAssistantDerivedEvidence(candidate)) {
+  if (hasAssistantDerivedPromotionEvidence(candidate)) {
     return pendingResult('Memory candidate is based on assistant output and requires user confirmation', count)
   }
   if (isLowValuePromotionNoise(candidate)) {
@@ -262,6 +262,10 @@ function hasAssistantDerivedEvidence(candidate: PendingMemory): boolean {
     return false
   }
 
+  return hasAssistantDerivedPromotionEvidence(candidate)
+}
+
+function hasAssistantDerivedPromotionEvidence(candidate: PendingMemory): boolean {
   return candidate.evidence.some((entry) => {
     const text = `${entry.summary ?? ''} ${entry.quote ?? ''}`.toLowerCase()
     return (

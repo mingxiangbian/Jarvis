@@ -57,6 +57,18 @@ describe('Codex repeated evidence promotion policy', () => {
     expect(evaluatePendingPromotion(candidate).promotable).toBe(true)
   })
 
+  it('does not let user confirmation override assistant-derived silence evidence', () => {
+    const candidate = createPending({
+      userConfirmed: true,
+      seenCount: 1,
+      evidence: [
+        { runId: 'run-1', summary: 'Assistant suggested the rule and user accepted without correction.' }
+      ]
+    })
+
+    expect(evaluatePendingPromotion(candidate).promotable).toBe(false)
+  })
+
   it('derives safe profile visibility without treating sensitivity as the only gate', () => {
     expect(deriveProfileVisibility(createPending({ strength: 'hard' }))).toBe('always')
     expect(
