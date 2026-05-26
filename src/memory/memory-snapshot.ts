@@ -105,6 +105,12 @@ export async function createMemorySnapshotFromRoot(memoryRoot: string, reason: s
   return summarizeSnapshot(snapshot)
 }
 
+export async function assertMemorySnapshotTargetSafeFromRoot(memoryRoot: string): Promise<string> {
+  const root = await ensureWritableMemoryRootPath(memoryRoot)
+  await ensureSnapshotDir(root)
+  return root
+}
+
 export async function listMemorySnapshots(cwd: string): Promise<MemorySnapshotSummary[]> {
   const root = await getReadableMemoryRoot(cwd)
   if (root === null) return []

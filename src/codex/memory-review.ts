@@ -7,8 +7,10 @@ import {
   getReadableCodexProjectMemoryRoot
 } from './codex-memory-root.js'
 import { identifyCodexProject } from './project-id.js'
-import { assertMemoryProjectionTargetsSafe } from '../memory/memory-exporter.js'
-import { runMemoryMaintenanceFromRoot } from '../memory/memory-maintenance.js'
+import {
+  assertMemoryMaintenanceTargetsSafeFromRoot,
+  runMemoryMaintenanceFromRoot
+} from '../memory/memory-maintenance.js'
 import {
   appendMemoryEventFromRoot,
   appendTombstoneFromRoot,
@@ -286,7 +288,7 @@ export async function promoteCodexPendingMemory(input: {
   const nextActive = upsertActiveMemory(active, memory)
   const nextPending = pending.filter((memoryCandidate) => memoryCandidate.id !== candidate.id)
 
-  await assertMemoryProjectionTargetsSafe(memoryRoot)
+  await assertMemoryMaintenanceTargetsSafeFromRoot(memoryRoot)
   await writeActiveMemoriesFromRoot(memoryRoot, nextActive)
   await writePendingMemoriesFromRoot(memoryRoot, nextPending)
   await appendMemoryEventFromRoot(memoryRoot, {

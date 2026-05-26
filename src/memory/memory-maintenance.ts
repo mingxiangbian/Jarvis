@@ -1,9 +1,13 @@
 import { randomUUID } from 'node:crypto'
-import { renderMemoryProjectionsFromRoot } from './memory-exporter.js'
-import { createMemorySnapshotFromRoot } from './memory-snapshot.js'
+import { mkdir, rm } from 'node:fs/promises'
+import { join } from 'node:path'
+import { setTimeout as delay } from 'node:timers/promises'
+import { assertMemoryProjectionTargetsSafe, renderMemoryProjectionsFromRoot } from './memory-exporter.js'
+import { assertMemorySnapshotTargetSafeFromRoot, createMemorySnapshotFromRoot } from './memory-snapshot.js'
 import {
   appendMemoryEventFromRoot,
   appendTombstoneFromRoot,
+  ensureWritableMemoryRootPath,
   readActiveMemoriesFromRoot,
   readPendingMemoriesFromRoot,
   readTombstonesFromRoot,
@@ -11,6 +15,10 @@ import {
   writePendingMemoriesFromRoot
 } from './memory-store.js'
 import type { CyreneMemory, MemoryEvent, MemoryEvidence, MemoryTombstone, PendingMemory } from './types.js'
+
+const MAINTENANCE_LOCK_DIR = '.maintenance.lock'
+const MAINTENANCE_LOCK_TIMEOUT_MS = 30_000
+const MAINTENANCE_LOCK_POLL_MS = 10
 
 export interface MemoryMaintenanceBudget {
   activeMaxItems: number
@@ -33,6 +41,23 @@ export interface MemoryMaintenanceResult {
 }
 
 export async function runMemoryMaintenanceFromRoot(input: {
+  memoryRoot: string
+  budget: MemoryMaintenanceBudget
+  now?: string
+  reason?: string
+}): Promise<MemoryMaintenanceResult> {
+  return withMemoryMaintenanceLock(input.memoryRoot, (memoryRoot) =>
+    runMemoryMaintenanceLocked({ ...input, memoryRoot })
+  )
+}
+
+export async function assertMemoryMaintenanceTargetsSafeFromRoot(memoryRoot: string): Promise<string> {
+  const root = await assertMemorySnapshotTargetSafeFromRoot(memoryRoot)
+  await assertMemoryProjectionTargetsSafe(root)
+  return root
+}
+
+async function runMemoryMaintenanceLocked(input: {
   memoryRoot: string
   budget: MemoryMaintenanceBudget
   now?: string
@@ -97,6 +122,32 @@ export async function runMemoryMaintenanceFromRoot(input: {
     trimmed,
     activeCount: boundedActive.length,
     pendingCount: boundedPending.length
+  }
+}
+
+async function withMemoryMaintenanceLock<T>(memoryRoot: string, task: (memoryRoot: string) => Promise<T>): Promise<T> {
+  const root = await ensureWritableMemoryRootPath(memoryRoot)
+  const lockDir = join(root, MAINTENANCE_LOCK_DIR)
+  const startedAt = Date.now()
+  while (true) {
+    try {
+      await mkdir(lockDir)
+      break
+    } catch (error) {
+      if (!isFileErrorCode(error, 'EEXIST')) {
+        throw error
+      }
+      if (Date.now() - startedAt > MAINTENANCE_LOCK_TIMEOUT_MS) {
+        throw new Error(`Timed out waiting for memory maintenance lock: ${lockDir}`)
+      }
+      await delay(MAINTENANCE_LOCK_POLL_MS)
+    }
+  }
+
+  try {
+    return await task(root)
+  } finally {
+    await rm(lockDir, { recursive: true, force: true })
   }
 }
 
@@ -323,4 +374,8 @@ function unique(values: string[]): string[] {
 function uniqueOptional(values: string[]): string[] | undefined {
   const uniqueValues = unique(values)
   return uniqueValues.length === 0 ? undefined : uniqueValues
+}
+
+function isFileErrorCode(error: unknown, code: string): boolean {
+  return error instanceof Error && 'code' in error && error.code === code
 }

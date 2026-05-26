@@ -100,6 +100,37 @@ describe('root memory maintenance', () => {
     ])
   })
 
+  it('serializes concurrent maintenance for the same root', async () => {
+    const memoryRoot = await createMemoryRoot()
+    const expired = createMemory({
+      id: 'expired-1',
+      normalizedKey: 'expired-memory',
+      expiresAt: '2026-05-25T00:00:00.000Z'
+    })
+    await seedMemoryRoot({ memoryRoot, active: [expired] })
+
+    await Promise.all([
+      runMemoryMaintenanceFromRoot({
+        memoryRoot,
+        budget: createBudget(),
+        now: '2026-05-26T00:00:00.000Z'
+      }),
+      runMemoryMaintenanceFromRoot({
+        memoryRoot,
+        budget: createBudget(),
+        now: '2026-05-26T00:00:00.000Z'
+      })
+    ])
+
+    expect(await readJsonLines<MemoryTombstone>(join(memoryRoot, 'tombstones.jsonl'))).toEqual([
+      expect.objectContaining({ memoryId: 'expired-1', reason: 'expired' })
+    ])
+    const events = await readJsonLines<MemoryEvent>(join(memoryRoot, 'events.jsonl'))
+    expect(events.filter((event) => event.action === 'expire')).toEqual([
+      expect.objectContaining({ memoryId: 'expired-1', reason: 'expired' })
+    ])
+  })
+
   it('dedupes active memories by normalizedKey and keeps stronger newer evidence', async () => {
     const memoryRoot = await createMemoryRoot()
     const weaker = createMemory({
