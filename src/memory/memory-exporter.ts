@@ -179,7 +179,11 @@ async function removeLegacyGeneratedProjectionFile(root: string, legacyFile: str
   if (!content.startsWith(GENERATED_HEADER) && !content.startsWith(OLD_GENERATED_HEADER)) {
     return
   }
-  await rm(targetPath)
+  await rm(targetPath).catch((error: unknown) => {
+    if (!isFileErrorCode(error, 'ENOENT')) {
+      throw error
+    }
+  })
 }
 
 async function removeEmptyLegacyProjectionsDirectory(root: string): Promise<void> {
@@ -196,7 +200,11 @@ async function removeEmptyLegacyProjectionsDirectory(root: string): Promise<void
   }
 
   if ((await readdir(projectionsDir)).length === 0) {
-    await rmdir(projectionsDir)
+    await rmdir(projectionsDir).catch((error: unknown) => {
+      if (!isFileErrorCode(error, 'ENOENT') && !isFileErrorCode(error, 'ENOTEMPTY')) {
+        throw error
+      }
+    })
   }
 }
 

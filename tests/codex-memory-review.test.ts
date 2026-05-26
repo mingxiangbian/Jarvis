@@ -476,6 +476,25 @@ describe('Codex pending memory review', () => {
     await expect(readdir(join(memoryRoot, 'projections'))).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
+  it('renders concurrently while cleaning up generated legacy projections', async () => {
+    const memoryRoot = await createTempDir('cyrene-review-memory-root-')
+    const generated = '<!-- Generated from index.jsonl. Do not edit manually. -->\n\nold\n'
+    await mkdir(join(memoryRoot, 'projections'))
+    await writeFile(join(memoryRoot, 'MEMORY.md'), generated, 'utf8')
+    await writeFile(join(memoryRoot, 'projections', 'MEMORY.md'), generated, 'utf8')
+    await writeFile(join(memoryRoot, 'projections', 'PROJECT.md'), generated, 'utf8')
+    await writeFile(join(memoryRoot, 'projections', 'PERSONAL.md'), generated, 'utf8')
+    await writeFile(join(memoryRoot, 'projections', 'AFFECT.md'), generated, 'utf8')
+
+    await expect(Promise.all([
+      renderMemoryProjectionsFromRoot(memoryRoot),
+      renderMemoryProjectionsFromRoot(memoryRoot),
+      renderMemoryProjectionsFromRoot(memoryRoot)
+    ])).resolves.toHaveLength(3)
+
+    await expect(readFile(join(memoryRoot, 'MODEL_PROFILE.md'), 'utf8')).resolves.toContain('# Cyrene Model Profile')
+  })
+
   it('returns a compact pending review notice', async () => {
     const home = await createTempDir('cyrene-review-home-')
     vi.stubEnv('HOME', home)
