@@ -35,8 +35,13 @@ export interface CodexStopHookCommandOutput {
 const DURABLE_SIGNAL = /记住|请记住|以后默认|之后默认|以后你要|以后请|from now on|please remember|remember that|default to/i
 
 export async function handleCodexStopHookCommand(): Promise<string> {
-  const payload = await readJsonFromStdin()
-  const result = await handleCodexStopHookPayload(payload)
+  let result: CodexStopHookResult
+  try {
+    const payload = await readJsonFromStdin()
+    result = await handleCodexStopHookPayload(payload)
+  } catch {
+    result = { action: 'summary_failed', reason: 'Stop hook command failed.' }
+  }
   return formatCodexStopHookCommandOutput(result)
 }
 

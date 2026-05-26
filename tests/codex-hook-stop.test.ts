@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -19,6 +20,27 @@ async function createTempDir(prefix: string): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), prefix))
   tempDirs.push(dir)
   return dir
+}
+
+async function runStopHookCommand(input: string): Promise<{ code: number | null; stderr: string; stdout: string }> {
+  const child = spawn(
+    process.execPath,
+    ['node_modules/tsx/dist/cli.mjs', 'src/main.ts', 'codex', 'hook', 'stop'],
+    { cwd: process.cwd(), stdio: ['pipe', 'pipe', 'pipe'] }
+  )
+  let stdout = ''
+  let stderr = ''
+  child.stdout.setEncoding('utf8')
+  child.stderr.setEncoding('utf8')
+  child.stdout.on('data', (chunk: string) => { stdout += chunk })
+  child.stderr.on('data', (chunk: string) => { stderr += chunk })
+  child.stdin.end(input)
+
+  const code = await new Promise<number | null>((resolve, reject) => {
+    child.on('error', reject)
+    child.on('close', resolve)
+  })
+  return { code, stderr, stdout }
 }
 
 describe('Codex Stop hook runtime', () => {
@@ -139,6 +161,19 @@ describe('Codex Stop hook runtime', () => {
       suppressOutput: true
     })
     expect(output).toMatch(/\n$/)
+    expect(parsed).not.toHaveProperty('action')
+  })
+
+  it('keeps command output fail-open when stdin is invalid JSON', async () => {
+    const result = await runStopHookCommand('{bad json')
+
+    expect(result.code).toBe(0)
+    expect(result.stderr).toBe('')
+    const parsed = JSON.parse(result.stdout) as Record<string, unknown>
+    expect(parsed).toEqual({
+      continue: true,
+      suppressOutput: true
+    })
     expect(parsed).not.toHaveProperty('action')
   })
 })
