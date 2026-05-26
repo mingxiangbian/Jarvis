@@ -94,7 +94,8 @@ export async function handleCodexStopHookPayload(
     : await proposeExplicitMemoryCandidate(payload, cwd, instruction)
 
   const reviewCandidateIds = review.action === 'pending' ? review.candidateIds : []
-  const explicitCandidateId = explicitResult?.result.action === 'pending' ? explicitResult.result.candidateId : undefined
+  const explicitPending = explicitResult?.result.action === 'pending' ? explicitResult.result : undefined
+  const explicitCandidateId = explicitPending?.candidateId
   const candidateIds = [...reviewCandidateIds, ...(explicitCandidateId === undefined ? [] : [explicitCandidateId])]
   const summaryId = 'summaryId' in review ? review.summaryId : undefined
 
@@ -103,13 +104,9 @@ export async function handleCodexStopHookPayload(
       action: 'pending',
       candidateId: explicitCandidateId,
       candidateIds,
-      reason: explicitResult?.result.reason ?? 'Codex review summary proposed memory candidates.',
+      reason: explicitPending?.reason ?? 'Codex review summary proposed memory candidates.',
       summaryId
     }
-  }
-
-  if (explicitResult?.result.action === 'reject') {
-    return { action: 'reject', reason: explicitResult.result.reason, summaryId }
   }
 
   if (review.action === 'summary') {

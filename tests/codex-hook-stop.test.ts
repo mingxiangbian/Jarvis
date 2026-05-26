@@ -88,6 +88,26 @@ describe('Codex Stop hook runtime', () => {
     expect(JSON.parse(output)).toEqual({ continue: true, suppressOutput: true })
   })
 
+  it('keeps review summary when explicit durable fallback is rejected', async () => {
+    const home = await createTempDir('cyrene-codex-stop-home-')
+    vi.stubEnv('HOME', home)
+    const cwd = await createTempDir('cyrene-codex-stop-project-')
+    const transcript = join(cwd, 'transcript.jsonl')
+    await writeFile(transcript, JSON.stringify({ role: 'user', content: 'Please remember that I am anxious.' }) + '\n')
+
+    const result = await handleCodexStopHookPayload(
+      { cwd, transcript_path: transcript, session_id: 's1', turn_id: 't1' },
+      {
+        callModel: async () => ({
+          content: JSON.stringify({ summary: 'User asked to remember a sensitive self-description.', candidates: [] }),
+          toolCalls: []
+        })
+      }
+    )
+
+    expect(result.action).toBe('summary')
+  })
+
   it('still proposes explicit durable memory when review summary model fails', async () => {
     const home = await createTempDir('cyrene-codex-stop-home-')
     vi.stubEnv('HOME', home)
