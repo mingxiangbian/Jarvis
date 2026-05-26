@@ -199,29 +199,33 @@ async function runDeepDreamRoot(
   now: string,
   config: ReturnType<typeof createDefaultConfig>
 ): Promise<CodexMemoryDreamResult['roots'][number]> {
-  const lock = await tryAcquireDreamLock(memoryRoot, now, config.memoryDreamLockTtlMs)
-  if (!lock.acquired) {
-    return {
-      memoryRoot: lock.memoryRoot,
-      stage: 'deep',
-      promoted: 0,
-      rejected: 0,
-      keptPending: (await readPendingMemoriesFromRoot(lock.memoryRoot)).length,
-      skipped: lock.reason
-    }
-  }
-
+  let acquiredLock: Extract<DreamLockResult, { acquired: true }> | undefined
   try {
+    const lock = await tryAcquireDreamLock(memoryRoot, now, config.memoryDreamLockTtlMs)
+    if (!lock.acquired) {
+      return {
+        memoryRoot: lock.memoryRoot,
+        stage: 'deep',
+        promoted: 0,
+        rejected: 0,
+        keptPending: (await readPendingMemoriesFromRoot(lock.memoryRoot)).length,
+        skipped: lock.reason
+      }
+    }
+    acquiredLock = lock
+
     const result = await withMemoryMaintenanceLockFromRoot(lock.memoryRoot, async (lockedRoot) => {
       await assertMemoryMaintenanceTargetsSafeFromRoot(lockedRoot)
       return runDeepDreamRootLocked(lockedRoot, now, maintenanceBudget(config), config.memoryDreamIntervalHours)
     })
     return result
   } catch (error) {
-    await writeDreamFailed(lock.memoryRoot, now, error)
+    await writeDreamFailedFailOpen(memoryRoot, now, error)
     throw error
   } finally {
-    await releaseDreamLock(lock.lockDir)
+    if (acquiredLock !== undefined) {
+      await releaseDreamLock(acquiredLock)
+    }
   }
 }
 
@@ -242,25 +246,17 @@ async function runDeepDreamRootLocked(
   let mutated = false
 
   for (const candidate of pending) {
-    const evaluation = evaluatePendingPromotion(candidate, now)
-    if (!evaluation.promotable) {
-      if (shouldRejectWithoutMoreEvidence(evaluation.reason)) {
-        const decision = validateMemoryCandidate({ candidate, existingMemories: active, tombstones, now })
-        if (decision.action === 'reject') {
-          newTombstones.push(decision.tombstone)
-          events.push({
-            id: randomUUID(),
-            action: 'reject',
-            at: now,
-            reason: decision.reason,
-            candidateId: candidate.id
-          })
-          rejected += 1
-          mutated = true
-          continue
-        }
-      }
-      nextPending.push(candidate)
+    if (candidate.expiresAt <= now) {
+      newTombstones.push(tombstoneForExpiredPending(candidate, now))
+      events.push({
+        id: randomUUID(),
+        action: 'reject',
+        at: now,
+        reason: 'Memory candidate expired before dream promotion',
+        candidateId: candidate.id
+      })
+      rejected += 1
+      mutated = true
       continue
     }
 
@@ -276,6 +272,12 @@ async function runDeepDreamRootLocked(
       })
       rejected += 1
       mutated = true
+      continue
+    }
+
+    const evaluation = evaluatePendingPromotion(candidate, now)
+    if (!evaluation.promotable) {
+      nextPending.push(candidate)
       continue
     }
 
@@ -302,7 +304,6 @@ async function runDeepDreamRootLocked(
     mutated = true
   }
 
-  let maintenance: MemoryMaintenanceResult | undefined
   if (mutated) {
     await writeActiveMemoriesFromRoot(memoryRoot, active)
     await writePendingMemoriesFromRoot(memoryRoot, nextPending)
@@ -312,13 +313,13 @@ async function runDeepDreamRootLocked(
     for (const event of events) {
       await appendMemoryEventFromRoot(memoryRoot, event)
     }
-    maintenance = await runMemoryMaintenanceFromRootLocked({
-      memoryRoot,
-      budget,
-      now,
-      reason: 'after codex memory dream deep pass'
-    })
   }
+  const maintenance = await runMemoryMaintenanceFromRootLocked({
+    memoryRoot,
+    budget,
+    now,
+    reason: 'after codex memory dream deep pass'
+  })
 
   await writeDreamSuccess(memoryRoot, now, intervalHours)
   return {
@@ -326,8 +327,8 @@ async function runDeepDreamRootLocked(
     stage: 'deep',
     promoted,
     rejected,
-    keptPending: nextPending.length,
-    ...(maintenance === undefined ? {} : { maintenance })
+    keptPending: maintenance.pendingCount,
+    maintenance
   }
 }
 
@@ -394,6 +395,20 @@ function shouldRejectWithoutMoreEvidence(reason: string): boolean {
   return /diagnostic affective claim|missing auditable evidence/i.test(reason)
 }
 
+function tombstoneForExpiredPending(candidate: PendingMemory, now: string): MemoryTombstone {
+  return {
+    id: `tombstone-${candidate.id}`,
+    normalizedKey: candidate.normalizedKey,
+    domain: candidate.domain,
+    type: candidate.type,
+    strength: candidate.strength,
+    scope: candidate.scope,
+    reason: 'expired',
+    createdAt: now,
+    evidence: candidate.evidence
+  }
+}
+
 function upsertActiveMemory(active: CyreneMemory[], memory: CyreneMemory): CyreneMemory[] {
   const index = active.findIndex((entry) => entry.id === memory.id || entry.normalizedKey === memory.normalizedKey)
   if (index === -1) {
@@ -438,25 +453,40 @@ async function writeDreamFailed(memoryRoot: string, now: string, error: unknown)
   })
 }
 
+async function writeDreamFailedFailOpen(memoryRoot: string, now: string, error: unknown): Promise<void> {
+  try {
+    await writeDreamFailed(memoryRoot, now, error)
+  } catch {
+    // If the memory root itself is not writable, the original dream error is the actionable failure.
+  }
+}
+
+interface DreamLockOwner {
+  acquiredAt: string
+  pid?: number
+  token?: string
+}
+
 type DreamLockResult =
-  | { acquired: true; memoryRoot: string; lockDir: string }
+  | { acquired: true; memoryRoot: string; lockDir: string; token: string }
   | { acquired: false; memoryRoot: string; reason: string }
 
 async function tryAcquireDreamLock(memoryRoot: string, now: string, ttlMs: number): Promise<DreamLockResult> {
   const root = await ensureWritableMemoryRootPath(memoryRoot)
   const locksDir = await ensureDreamLocksDir(root)
   const lockDir = join(locksDir, DREAM_LOCK_DIR)
+  const token = randomUUID()
   while (true) {
     try {
       await mkdir(lockDir)
-      await writeFile(join(lockDir, 'owner.json'), `${JSON.stringify({ acquiredAt: now, pid: process.pid })}\n`, 'utf8')
-      return { acquired: true, memoryRoot: root, lockDir }
+      await writeFile(join(lockDir, 'owner.json'), `${JSON.stringify({ acquiredAt: now, pid: process.pid, token })}\n`, 'utf8')
+      return { acquired: true, memoryRoot: root, lockDir, token }
     } catch (error) {
       if (!isFileErrorCode(error, 'EEXIST')) {
         throw error
       }
-      if (await isDreamLockStale(lockDir, now, ttlMs)) {
-        await rm(lockDir, { recursive: true, force: true })
+      const owner = await readDreamLockOwner(lockDir)
+      if (owner !== undefined && isDreamLockOwnerStale(owner, now, ttlMs) && await removeDreamLockIfOwner(lockDir, owner)) {
         continue
       }
       return { acquired: false, memoryRoot: root, reason: `Skipped because dream lock is active: ${lockDir}` }
@@ -478,29 +508,72 @@ async function ensureDreamLocksDir(memoryRoot: string): Promise<string> {
   return locksDir
 }
 
-async function isDreamLockStale(lockDir: string, now: string, ttlMs: number): Promise<boolean> {
-  const stats = await lstat(lockDir)
+async function readDreamLockOwner(lockDir: string): Promise<DreamLockOwner | undefined> {
+  let stats
+  try {
+    stats = await lstat(lockDir)
+  } catch (error) {
+    if (isFileErrorCode(error, 'ENOENT')) {
+      return undefined
+    }
+    throw error
+  }
   if (stats.isSymbolicLink() || !stats.isDirectory()) {
     throw new Error(`Refusing to use invalid memory dream lock path: ${lockDir}`)
   }
   try {
-    const parsed = JSON.parse(await readFile(join(lockDir, 'owner.json'), 'utf8')) as { acquiredAt?: unknown }
+    const parsed = JSON.parse(await readFile(join(lockDir, 'owner.json'), 'utf8')) as { acquiredAt?: unknown; pid?: unknown; token?: unknown }
     if (typeof parsed.acquiredAt !== 'string') {
-      return false
+      return undefined
     }
-    return new Date(now).getTime() - new Date(parsed.acquiredAt).getTime() > ttlMs
+    return {
+      acquiredAt: parsed.acquiredAt,
+      ...(typeof parsed.pid === 'number' ? { pid: parsed.pid } : {}),
+      ...(typeof parsed.token === 'string' ? { token: parsed.token } : {})
+    }
   } catch (error) {
     if (isFileErrorCode(error, 'ENOENT')) {
-      return false
+      return undefined
     }
     throw error
   }
 }
 
-async function releaseDreamLock(lockDir: string): Promise<void> {
+function isDreamLockOwnerStale(owner: DreamLockOwner, now: string, ttlMs: number): boolean {
+  return new Date(now).getTime() - new Date(owner.acquiredAt).getTime() > ttlMs
+}
+
+async function removeDreamLockIfOwner(lockDir: string, expectedOwner: DreamLockOwner): Promise<boolean> {
+  const owner = await readDreamLockOwner(lockDir)
+  if (owner === undefined) {
+    return false
+  }
+  if (!isSameDreamLockOwner(owner, expectedOwner)) {
+    return false
+  }
   await rm(lockDir, { recursive: true, force: true })
+  return true
+}
+
+function isSameDreamLockOwner(owner: DreamLockOwner, expectedOwner: DreamLockOwner): boolean {
+  if (expectedOwner.token !== undefined) {
+    return owner.token === expectedOwner.token
+  }
+  return owner.acquiredAt === expectedOwner.acquiredAt && owner.pid === expectedOwner.pid
+}
+
+async function releaseDreamLock(lock: Extract<DreamLockResult, { acquired: true }>): Promise<void> {
+  const owner = await readDreamLockOwner(lock.lockDir)
+  if (owner !== undefined && owner.token === lock.token) {
+    await rm(lock.lockDir, { recursive: true, force: true })
+  }
 }
 
 function isFileErrorCode(error: unknown, code: string): boolean {
   return error instanceof Error && 'code' in error && error.code === code
+}
+
+export const testOnlyDreamLock = {
+  acquire: tryAcquireDreamLock,
+  release: releaseDreamLock
 }

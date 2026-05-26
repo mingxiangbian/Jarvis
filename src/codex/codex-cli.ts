@@ -56,9 +56,16 @@ function parseConfigPath(args: string[]): string | undefined {
 
 function parseDreamStage(args: string[]): CodexMemoryDreamStage | undefined {
   const index = args.indexOf('--stage')
-  const value = index >= 0 ? args[index + 1] : args.find((arg) => arg.startsWith('--stage='))?.slice('--stage='.length)
+  const inline = args.find((arg) => arg.startsWith('--stage='))
+  const value = index >= 0 ? args[index + 1] : inline?.slice('--stage='.length)
   if (value === undefined) {
+    if (index >= 0 || inline !== undefined) {
+      throw new Error('Invalid memory dream stage: missing value')
+    }
     return undefined
+  }
+  if (value === '' || value.startsWith('--')) {
+    throw new Error('Invalid memory dream stage: missing value')
   }
   if (value === 'light' || value === 'rem' || value === 'deep') {
     return value

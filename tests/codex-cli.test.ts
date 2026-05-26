@@ -370,6 +370,21 @@ describe('cyrene codex CLI', () => {
     expect(parsed.roots.some((root) => root.promoted === 1)).toBe(true)
   })
 
+  it('rejects memory dream --stage without a value', async () => {
+    const home = await createTempDir('cyrene-codex-cli-dream-home-')
+    process.env.HOME = home
+
+    await expect(
+      execFileAsync(
+        process.execPath,
+        ['node_modules/tsx/dist/cli.mjs', 'src/main.ts', 'codex', 'memory', 'dream', '--stage'],
+        { env: cliEnv(home) }
+      )
+    ).rejects.toMatchObject({
+      stderr: expect.stringContaining('Invalid memory dream stage')
+    })
+  })
+
   it('prints effective memory profile from the CLI', async () => {
     const home = await createTempDir('cyrene-codex-cli-profile-home-')
     process.env.HOME = home

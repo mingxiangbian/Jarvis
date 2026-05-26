@@ -129,7 +129,7 @@ export function distinctEvidenceCount(candidate: PendingMemory): number {
     }
     const summaryQuote = `${entry.summary ?? ''}|${entry.quote ?? ''}`
     const hash = createHash('sha256').update(summaryQuote).digest('hex')
-    keys.add(evidenceGroupId ?? sessionId ?? runId ?? hash)
+    keys.add(sessionId ?? runId ?? evidenceGroupId ?? hash)
   }
   return keys.size
 }
@@ -174,7 +174,7 @@ export function evaluatePendingPromotion(candidate: PendingMemory, now?: string)
   if (candidate.promoteAfter !== undefined && now !== undefined && candidate.promoteAfter > now) {
     return pendingResult('Memory candidate promoteAfter has not elapsed', count)
   }
-  if (hasAssistantDerivedPromotionEvidence(candidate)) {
+  if (assistantDerivedRequiresConfirmation(candidate)) {
     return pendingResult('Memory candidate is based on assistant output and requires user confirmation', count)
   }
   if (isLowValuePromotionNoise(candidate)) {
@@ -265,14 +265,27 @@ function isTrustedAutoWriteSource(candidate: PendingMemory): boolean {
 }
 
 function hasAssistantDerivedEvidence(candidate: PendingMemory): boolean {
-  if (candidate.userConfirmed === true) {
-    return false
-  }
-
-  return hasAssistantDerivedPromotionEvidence(candidate)
+  return assistantDerivedRequiresConfirmation(candidate)
 }
 
-function hasAssistantDerivedPromotionEvidence(candidate: PendingMemory): boolean {
+function assistantDerivedRequiresConfirmation(candidate: PendingMemory): boolean {
+  if (hasAssistantDerivedSilenceEvidence(candidate)) {
+    return true
+  }
+  if (!hasAssistantDerivedSource(candidate)) {
+    return false
+  }
+  return !hasExplicitUserConfirmationOrDirectInstruction(candidate)
+}
+
+function hasAssistantDerivedSource(candidate: PendingMemory): boolean {
+  return (
+    candidate.source === 'assistant_observed' ||
+    candidate.evidence.some((entry) => entry.sourceKind === 'assistant_observed')
+  )
+}
+
+function hasAssistantDerivedSilenceEvidence(candidate: PendingMemory): boolean {
   return candidate.evidence.some((entry) => {
     const text = `${entry.summary ?? ''} ${entry.quote ?? ''}`.toLowerCase()
     return (
@@ -285,6 +298,10 @@ function hasAssistantDerivedPromotionEvidence(candidate: PendingMemory): boolean
       text.includes('without correction')
     )
   })
+}
+
+function hasExplicitUserConfirmationOrDirectInstruction(candidate: PendingMemory): boolean {
+  return candidate.userConfirmed === true || hasDirectUserInstructionEvidence(candidate)
 }
 
 function isTentativeOrRecentPersonalMemory(candidate: PendingMemory): boolean {
@@ -314,9 +331,23 @@ function isMemoryRecallQuestion(candidate: PendingMemory): boolean {
 }
 
 function hasDirectMemoryInstruction(candidate: PendingMemory): boolean {
-  return /记住|请记住|以后默认|之后默认|以后你要|以后请|remember that|please remember|from now on|default to/i.test(
-    `${candidate.content} ${evidenceText(candidate)}`
+  return hasDirectMemoryInstructionText(`${candidate.content} ${evidenceText(candidate)}`)
+}
+
+function hasDirectUserInstructionEvidence(candidate: PendingMemory): boolean {
+  if (!hasDirectMemoryInstruction(candidate)) {
+    return false
+  }
+  if (candidate.source === 'user_explicit') {
+    return true
+  }
+  return candidate.evidence.some((entry) =>
+    entry.sourceKind === 'user_explicit' && hasDirectMemoryInstructionText(`${entry.summary ?? ''} ${entry.quote ?? ''}`)
   )
+}
+
+function hasDirectMemoryInstructionText(text: string): boolean {
+  return /记住|请记住|以后默认|之后默认|以后你要|以后请|remember that|please remember|from now on|default to/i.test(text)
 }
 
 function evidenceText(candidate: PendingMemory): string {

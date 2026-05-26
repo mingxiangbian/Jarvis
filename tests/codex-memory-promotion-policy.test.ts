@@ -8,12 +8,12 @@ import {
 import type { PendingMemory } from '../src/memory/types.js'
 
 describe('Codex repeated evidence promotion policy', () => {
-  it('counts repeated same run evidence once', () => {
+  it('counts repeated same run evidence once even with different evidence groups', () => {
     const candidate = createPending({
       seenCount: 2,
       evidence: [
-        { runId: 'run-1', summary: 'First', evidenceGroupId: 'same' },
-        { runId: 'run-1', summary: 'Second duplicate', evidenceGroupId: 'same' }
+        { runId: 'run-1', sessionId: 'session-1', summary: 'First', evidenceGroupId: 'group-1' },
+        { runId: 'run-1', sessionId: 'session-1', summary: 'Second duplicate', evidenceGroupId: 'group-2' }
       ]
     })
 
@@ -79,6 +79,25 @@ describe('Codex repeated evidence promotion policy', () => {
     })
 
     expect(evaluatePendingPromotion(candidate).promotable).toBe(false)
+  })
+
+  it('does not promote assistant-observed source or evidence sourceKind', () => {
+    const candidate = createPending({
+      source: 'assistant_observed',
+      seenCount: 2,
+      evidence: [
+        { runId: 'run-1', sourceKind: 'assistant_observed', summary: 'First observation.' },
+        { runId: 'run-2', sourceKind: 'assistant_observed', summary: 'Second observation.' }
+      ]
+    })
+
+    const result = evaluatePendingPromotion(candidate)
+
+    expect(result).toMatchObject({
+      promotable: false,
+      distinctEvidenceCount: 2,
+      reason: 'Memory candidate is based on assistant output and requires user confirmation'
+    })
   })
 
   it('does not promote before promoteAfter', () => {

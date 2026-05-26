@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { readFile, rename, writeFile } from 'node:fs/promises'
+import { lstat, readFile, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { ensureWritableMemoryRootPath } from '../memory/memory-store.js'
 
@@ -14,9 +14,24 @@ export interface CodexMemoryDreamState {
 const DREAM_STATE_FILE = 'dream-state.json'
 
 export async function readCodexMemoryDreamState(memoryRoot: string): Promise<CodexMemoryDreamState> {
-  const root = await ensureWritableMemoryRootPath(memoryRoot)
+  let stats
   try {
-    const parsed = JSON.parse(await readFile(join(root, DREAM_STATE_FILE), 'utf8')) as Partial<CodexMemoryDreamState>
+    stats = await lstat(memoryRoot)
+  } catch (error) {
+    if (isFileErrorCode(error, 'ENOENT')) {
+      return { dreamDue: false }
+    }
+    throw error
+  }
+  if (stats.isSymbolicLink()) {
+    throw new Error(`Refusing to read dream state from symlink memory root: ${memoryRoot}`)
+  }
+  if (!stats.isDirectory()) {
+    throw new Error(`Refusing to read dream state from non-directory memory root: ${memoryRoot}`)
+  }
+
+  try {
+    const parsed = JSON.parse(await readFile(join(memoryRoot, DREAM_STATE_FILE), 'utf8')) as Partial<CodexMemoryDreamState>
     return {
       dreamDue: parsed.dreamDue === true,
       ...(typeof parsed.lastDreamAt === 'string' ? { lastDreamAt: parsed.lastDreamAt } : {}),

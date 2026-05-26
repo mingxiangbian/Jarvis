@@ -22,7 +22,7 @@ afterEach(async () => {
 describe('personal memory validator and lifecycle', () => {
   it('auto-writes eligible project hard memory', () => {
     const decision = validateMemoryCandidate({
-      candidate: createCandidate({ domain: 'project', type: 'project_fact', strength: 'hard' }),
+      candidate: createCandidate({ domain: 'project', type: 'project_fact', strength: 'hard', source: 'user_explicit' }),
       existingMemories: [],
       tombstones: [],
       now: '2026-05-23T00:00:00.000Z'
@@ -57,6 +57,24 @@ describe('personal memory validator and lifecycle', () => {
         strength: 'hard',
         source: 'assistant_observed',
         content: 'Use the assistant-generated architecture framework as the default response shape.'
+      }),
+      existingMemories: [],
+      tombstones: [],
+      now: '2026-05-23T00:00:00.000Z'
+    })
+
+    expect(decision.action).toBe('pending')
+  })
+
+  it('does not auto-write high-score project memory from assistant-observed source metadata', () => {
+    const decision = validateMemoryCandidate({
+      candidate: createCandidate({
+        domain: 'project',
+        type: 'project_fact',
+        strength: 'hard',
+        source: 'assistant_observed',
+        evidenceSourceKind: 'assistant_observed',
+        content: 'The project should use the assistant-generated implementation framing by default.'
       }),
       existingMemories: [],
       tombstones: [],
@@ -227,6 +245,7 @@ describe('personal memory validator and lifecycle', () => {
         domain: 'personal',
         type: 'interaction_style',
         strength: 'soft',
+        source: 'user_explicit',
         normalizedKey: 'user-prefers-direct-plans'
       }),
       seenCount: 2,
@@ -239,12 +258,13 @@ describe('personal memory validator and lifecycle', () => {
     const result = await processMemoryCandidate({
       cwd,
       candidate: createCandidate({
-        id: 'pending-new',
-        domain: 'personal',
-        type: 'interaction_style',
-        strength: 'soft',
-        normalizedKey: 'user-prefers-direct-plans',
-        evidenceSummary: 'Third signal.'
+      id: 'pending-new',
+      domain: 'personal',
+      type: 'interaction_style',
+      strength: 'soft',
+      source: 'user_explicit',
+      normalizedKey: 'user-prefers-direct-plans',
+      evidenceSummary: 'Third signal.'
       }),
       now: '2026-05-23T00:01:00.000Z'
     })
@@ -266,6 +286,7 @@ function createCandidate(input: {
   normalizedKey?: string
   content?: string
   evidenceSummary?: string
+  evidenceSourceKind?: PendingMemory['source']
 } = {}): PendingMemory {
   return {
     id: input.id ?? 'candidate-1',
@@ -276,7 +297,7 @@ function createCandidate(input: {
     status: 'pending',
     content: input.content ?? 'Cyrene uses typed personal memory.',
     normalizedKey: input.normalizedKey ?? 'cyrene-typed-personal-memory',
-    evidence: [{ runId: input.id ?? 'run-1', summary: input.evidenceSummary ?? 'Test evidence.' }],
+    evidence: [{ runId: input.id ?? 'run-1', summary: input.evidenceSummary ?? 'Test evidence.', sourceKind: input.evidenceSourceKind }],
     source: input.source ?? 'assistant_observed',
     scores: {
       evidenceStrength: 0.9,
