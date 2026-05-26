@@ -95,6 +95,30 @@ describe('personal memory projections and retrieval', () => {
     expect(profile).not.toContain('anxious')
   })
 
+  it('abstracts safe-summary personal details into behavioral guidance', async () => {
+    const cwd = await createTempDir()
+    await writeActiveMemories(cwd, [
+      createMemory({
+        id: 'personal-sensitive-detail',
+        domain: 'personal',
+        type: 'interaction_style',
+        strength: 'soft',
+        content: 'User private divorce from Alex makes them prefer concise task-focused responses.',
+        safety: 0.95,
+        sensitivity: 0.25,
+        profileVisibility: 'safe_summary'
+      })
+    ])
+
+    await renderMemoryProjections(cwd)
+
+    const profile = await readFile(join(cwd, '.cyrene', 'memory', 'MODEL_PROFILE.md'), 'utf8')
+    expect(profile).toContain('Prefer concise task-focused responses.')
+    expect(profile).not.toContain('divorce')
+    expect(profile).not.toContain('Alex')
+    expect(profile).not.toContain('private')
+  })
+
   it('retrieves coding memories from project procedural and system domains', async () => {
     const cwd = await createTempDir()
     await writeActiveMemories(cwd, [

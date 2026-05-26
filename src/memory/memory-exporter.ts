@@ -245,7 +245,7 @@ function profileSafeContent(memory: CyreneMemory): string | null {
     return null
   }
   if (memory.domain === 'personal' || memory.domain === 'relationship' || memory.domain === 'affective') {
-    return conciseBehavioralGuidance(content)
+    return conciseBehavioralGuidance(content, memory.type)
   }
   return content
 }
@@ -264,18 +264,70 @@ function sanitizeProfileContent(content: string): string | null {
   return sanitized
 }
 
-function conciseBehavioralGuidance(content: string): string {
-  return content
-    .replace(/^the user responds better when\b/i, 'Prefer')
-    .replace(/^user responds better when\b/i, 'Prefer')
-    .replace(/^user prefers\b/i, 'Prefer')
-    .replace(/^the user prefers\b/i, 'Prefer')
+function conciseBehavioralGuidance(content: string, type: CyreneMemory['type']): string | null {
+  const guidance = extractBehavioralGuidance(content, type)
+  if (guidance === null) {
+    return null
+  }
+  if (containsRawSensitiveProfileDetail(guidance)) {
+    return null
+  }
+  return guidance
     .replace(/\s+/g, ' ')
     .trim()
 }
 
 function isDiagnosticAffectiveContent(content: string): boolean {
   return /\b(anxious|unstable|insecurity|insecure|dependent|dependency|fragile|needy)\b|焦虑|不稳定|缺乏安全感|情感依赖/i.test(
+    content
+  )
+}
+
+function extractBehavioralGuidance(content: string, type: CyreneMemory['type']): string | null {
+  const normalized = content.replace(/\s+/g, ' ').trim()
+  const preference =
+    matchGuidance(normalized, /\b(?:makes|made|means|meant|leads|led)\s+(?:them|the user|user)\s+prefer\s+(.+)$/i) ??
+    matchGuidance(normalized, /^(?:the\s+)?user\s+prefers?\s+(.+)$/i) ??
+    matchGuidance(normalized, /^(?:the\s+)?user\s+(?:responds better|works best)\s+when\s+(.+)$/i)
+
+  if (preference !== null) {
+    const phrase = formatGuidancePhrase(preference)
+    return phrase === '' ? null : `Prefer ${phrase}`
+  }
+
+  if (type === 'relationship_boundary') {
+    const boundary = matchGuidance(normalized, /^(?:the\s+)?user\s+(?:asks|asked|wants|wanted)\s+(?:you\s+)?(?:to\s+)?(.+)$/i)
+    if (boundary !== null) {
+      const phrase = formatGuidancePhrase(boundary)
+      return phrase === '' ? null : phrase
+    }
+  }
+
+  return null
+}
+
+function matchGuidance(content: string, pattern: RegExp): string | null {
+  const match = pattern.exec(content)
+  return match?.[1] === undefined ? null : match[1]
+}
+
+function formatGuidancePhrase(content: string): string {
+  const guidance = stripSensitiveRationale(content)
+    .replace(/^(?:to\s+)?prefer\s+/i, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (guidance === '') {
+    return ''
+  }
+  return `${guidance.charAt(0).toLowerCase()}${guidance.slice(1).replace(/[.?!]*$/, '.')}`
+}
+
+function stripSensitiveRationale(content: string): string {
+  return content.split(/\b(?:because|due to|after|following|since)\b/i)[0]?.trim() ?? ''
+}
+
+function containsRawSensitiveProfileDetail(content: string): boolean {
+  return /\b(private|divorce|medical|diagnosis|diagnosed|trauma|family|partner|spouse|ex[- ]?partner)\b|隐私|离婚|创伤|诊断/i.test(
     content
   )
 }
