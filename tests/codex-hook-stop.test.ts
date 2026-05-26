@@ -66,16 +66,45 @@ describe('Codex Stop hook runtime', () => {
     })
   })
 
-  it('no-ops when transcript has no explicit durable signal', async () => {
+  it('keeps command output valid while internal runtime writes review summaries', async () => {
     const home = await createTempDir('cyrene-codex-stop-home-')
     vi.stubEnv('HOME', home)
     const cwd = await createTempDir('cyrene-codex-stop-project-')
     const transcript = join(cwd, 'transcript.jsonl')
-    await writeFile(transcript, JSON.stringify({ role: 'user', content: '今天这个测试通过了吗？' }) + '\n')
+    await writeFile(transcript, JSON.stringify({ role: 'user', content: '普通讨论' }) + '\n')
 
-    const result = await handleCodexStopHookPayload({ cwd, transcript_path: transcript })
+    const result = await handleCodexStopHookPayload(
+      { cwd, transcript_path: transcript, session_id: 's1', turn_id: 't1' },
+      {
+        callModel: async () => ({
+          content: JSON.stringify({ summary: '普通讨论，无长期记忆。', candidates: [] }),
+          toolCalls: []
+        })
+      }
+    )
 
-    expect(result.action).toBe('noop')
+    expect(result.action).toBe('summary')
+    const output = formatCodexStopHookCommandOutput(result)
+    expect(JSON.parse(output)).toEqual({ continue: true, suppressOutput: true })
+  })
+
+  it('still proposes explicit durable memory when review summary model fails', async () => {
+    const home = await createTempDir('cyrene-codex-stop-home-')
+    vi.stubEnv('HOME', home)
+    const cwd = await createTempDir('cyrene-codex-stop-project-')
+    const transcript = join(cwd, 'transcript.jsonl')
+    await writeFile(transcript, JSON.stringify({ role: 'user', content: '以后默认 spec 和 plan 用中文写。' }) + '\n')
+
+    const result = await handleCodexStopHookPayload(
+      { cwd, transcript_path: transcript, session_id: 's1', turn_id: 't2' },
+      {
+        callModel: async () => {
+          throw new Error('model unavailable')
+        }
+      }
+    )
+
+    expect(result.action).toBe('pending')
   })
 
   it('formats command output as valid Codex Stop hook JSON', () => {
