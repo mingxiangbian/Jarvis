@@ -19,6 +19,7 @@ import type { CyreneMemory, MemoryEvent, MemoryEvidence, MemoryTombstone, Pendin
 const MAINTENANCE_LOCK_DIR = '.maintenance.lock'
 const MAINTENANCE_LOCK_TIMEOUT_MS = 30_000
 const MAINTENANCE_LOCK_POLL_MS = 10
+const MAINTENANCE_LOCK_TIMEOUT_ENV = 'CYRENE_MEMORY_MAINTENANCE_LOCK_TIMEOUT_MS'
 
 export interface MemoryMaintenanceBudget {
   activeMaxItems: number
@@ -40,14 +41,19 @@ export interface MemoryMaintenanceResult {
   pendingCount: number
 }
 
+export interface MemoryMaintenanceLockOptions {
+  timeoutMs?: number
+  pollMs?: number
+}
+
 export async function runMemoryMaintenanceFromRoot(input: {
   memoryRoot: string
   budget: MemoryMaintenanceBudget
   now?: string
   reason?: string
 }): Promise<MemoryMaintenanceResult> {
-  return withMemoryMaintenanceLock(input.memoryRoot, (memoryRoot) =>
-    runMemoryMaintenanceLocked({ ...input, memoryRoot })
+  return withMemoryMaintenanceLockFromRoot(input.memoryRoot, (memoryRoot) =>
+    runMemoryMaintenanceFromRootLocked({ ...input, memoryRoot })
   )
 }
 
@@ -57,7 +63,7 @@ export async function assertMemoryMaintenanceTargetsSafeFromRoot(memoryRoot: str
   return root
 }
 
-async function runMemoryMaintenanceLocked(input: {
+export async function runMemoryMaintenanceFromRootLocked(input: {
   memoryRoot: string
   budget: MemoryMaintenanceBudget
   now?: string
@@ -125,10 +131,16 @@ async function runMemoryMaintenanceLocked(input: {
   }
 }
 
-async function withMemoryMaintenanceLock<T>(memoryRoot: string, task: (memoryRoot: string) => Promise<T>): Promise<T> {
+export async function withMemoryMaintenanceLockFromRoot<T>(
+  memoryRoot: string,
+  task: (memoryRoot: string) => Promise<T>,
+  options: MemoryMaintenanceLockOptions = {}
+): Promise<T> {
   const root = await ensureWritableMemoryRootPath(memoryRoot)
   const lockDir = join(root, MAINTENANCE_LOCK_DIR)
   const startedAt = Date.now()
+  const timeoutMs = options.timeoutMs ?? memoryMaintenanceLockTimeoutMs()
+  const pollMs = options.pollMs ?? MAINTENANCE_LOCK_POLL_MS
   while (true) {
     try {
       await mkdir(lockDir)
@@ -137,10 +149,10 @@ async function withMemoryMaintenanceLock<T>(memoryRoot: string, task: (memoryRoo
       if (!isFileErrorCode(error, 'EEXIST')) {
         throw error
       }
-      if (Date.now() - startedAt > MAINTENANCE_LOCK_TIMEOUT_MS) {
+      if (Date.now() - startedAt > timeoutMs) {
         throw new Error(`Timed out waiting for memory maintenance lock: ${lockDir}`)
       }
-      await delay(MAINTENANCE_LOCK_POLL_MS)
+      await delay(pollMs)
     }
   }
 
@@ -149,6 +161,13 @@ async function withMemoryMaintenanceLock<T>(memoryRoot: string, task: (memoryRoo
   } finally {
     await rm(lockDir, { recursive: true, force: true })
   }
+}
+
+function memoryMaintenanceLockTimeoutMs(): number {
+  const raw = process.env[MAINTENANCE_LOCK_TIMEOUT_ENV]
+  if (raw === undefined) return MAINTENANCE_LOCK_TIMEOUT_MS
+  const parsed = Number.parseInt(raw, 10)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : MAINTENANCE_LOCK_TIMEOUT_MS
 }
 
 type DedupedMemories = CyreneMemory[] & { removed: number }

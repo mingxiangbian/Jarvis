@@ -9,7 +9,8 @@ import {
 import { identifyCodexProject } from './project-id.js'
 import {
   assertMemoryMaintenanceTargetsSafeFromRoot,
-  runMemoryMaintenanceFromRoot
+  runMemoryMaintenanceFromRootLocked,
+  withMemoryMaintenanceLockFromRoot
 } from '../memory/memory-maintenance.js'
 import {
   appendMemoryEventFromRoot,
@@ -238,7 +239,7 @@ export async function promoteCodexPendingMemory(input: {
   now?: string
 }): Promise<CodexPendingMemoryPromoteResult> {
   const now = input.now ?? new Date().toISOString()
-  const { project, memoryRoot, pending, candidate } = await findPendingCandidateInCodexRoots(input.cwd, input.id)
+  const { project, memoryRoot, candidate } = await findPendingCandidateInCodexRoots(input.cwd, input.id)
   if (candidate === undefined) {
     return {
       project,
@@ -284,46 +285,103 @@ export async function promoteCodexPendingMemory(input: {
     }
   }
 
-  const memory = memoryForPromotedDecision(decision, now)
-  const nextActive = upsertActiveMemory(active, memory)
-  const nextPending = pending.filter((memoryCandidate) => memoryCandidate.id !== candidate.id)
+  const config = createDefaultConfig(input.cwd)
+  const maintenanceBudget = {
+    activeMaxItems: config.memoryActiveMaxItems,
+    activeContentMaxChars: config.memoryActiveContentMaxChars,
+    indexFileMaxChars: config.memoryIndexFileMaxChars,
+    singleMemoryContentMaxChars: config.memorySingleContentMaxChars,
+    singleMemoryEvidenceMaxChars: config.memorySingleEvidenceMaxChars,
+    pendingMaxItems: config.memoryPendingMaxItems
+  }
 
   await assertMemoryMaintenanceTargetsSafeFromRoot(memoryRoot)
-  await writeActiveMemoriesFromRoot(memoryRoot, nextActive)
-  await writePendingMemoriesFromRoot(memoryRoot, nextPending)
-  await appendMemoryEventFromRoot(memoryRoot, {
-    id: randomUUID(),
-    action: 'promote',
-    at: now,
-    reason: input.reason ?? 'Approved by Codex pending memory review',
-    memoryId: memory.id,
-    candidateId: candidate.id
-  })
-  const config = createDefaultConfig(input.cwd)
-  await runMemoryMaintenanceFromRoot({
-    memoryRoot,
-    budget: {
-      activeMaxItems: config.memoryActiveMaxItems,
-      activeContentMaxChars: config.memoryActiveContentMaxChars,
-      indexFileMaxChars: config.memoryIndexFileMaxChars,
-      singleMemoryContentMaxChars: config.memorySingleContentMaxChars,
-      singleMemoryEvidenceMaxChars: config.memorySingleEvidenceMaxChars,
-      pendingMaxItems: config.memoryPendingMaxItems
-    },
-    now,
-    reason: 'after manual memory promotion'
-  })
-
-  return {
-    project,
-    memoryRoot,
-    result: {
-      action: 'promote',
-      candidateId: candidate.id,
-      memory,
-      reviewHash: latestReviewHash
+  return withMemoryMaintenanceLockFromRoot(memoryRoot, async (lockedMemoryRoot) => {
+    await assertMemoryMaintenanceTargetsSafeFromRoot(lockedMemoryRoot)
+    const lockedPending = await readPendingMemoriesFromRoot(lockedMemoryRoot)
+    const lockedCandidate = lockedPending.find((memoryCandidate) => memoryCandidate.id === candidate.id)
+    if (lockedCandidate === undefined) {
+      return {
+        project,
+        memoryRoot: lockedMemoryRoot,
+        result: {
+          action: 'not_found',
+          candidateId: candidate.id,
+          reason: 'Pending memory candidate not found'
+        }
+      }
     }
-  }
+
+    const lockedReviewHash = reviewHashForPendingMemory(lockedCandidate)
+    if (lockedReviewHash !== input.reviewHash) {
+      return {
+        project,
+        memoryRoot: lockedMemoryRoot,
+        result: {
+          action: 'conflict',
+          candidateId: candidate.id,
+          reason: 'Pending memory candidate changed since review',
+          latest: summarizePendingMemory(lockedCandidate)
+        }
+      }
+    }
+
+    const [lockedActive, lockedTombstones] = await Promise.all([
+      readActiveMemoriesFromRoot(lockedMemoryRoot),
+      readTombstonesFromRoot(lockedMemoryRoot)
+    ])
+    const lockedConfirmedCandidate: PendingMemory = { ...lockedCandidate, userConfirmed: true }
+    const lockedDecision = validateMemoryCandidate({
+      candidate: lockedConfirmedCandidate,
+      existingMemories: lockedActive,
+      tombstones: lockedTombstones,
+      now
+    })
+    if (lockedDecision.action === 'reject') {
+      return {
+        project,
+        memoryRoot: lockedMemoryRoot,
+        result: {
+          action: 'rejected_by_validator',
+          candidateId: lockedCandidate.id,
+          reason: lockedDecision.reason,
+          tombstone: lockedDecision.tombstone
+        }
+      }
+    }
+
+    const lockedMemory = memoryForPromotedDecision(lockedDecision, now)
+    const nextActive = upsertActiveMemory(lockedActive, lockedMemory)
+    const nextPending = lockedPending.filter((memoryCandidate) => memoryCandidate.id !== lockedCandidate.id)
+
+    await writeActiveMemoriesFromRoot(lockedMemoryRoot, nextActive)
+    await writePendingMemoriesFromRoot(lockedMemoryRoot, nextPending)
+    await appendMemoryEventFromRoot(lockedMemoryRoot, {
+      id: randomUUID(),
+      action: 'promote',
+      at: now,
+      reason: input.reason ?? 'Approved by Codex pending memory review',
+      memoryId: lockedMemory.id,
+      candidateId: lockedCandidate.id
+    })
+    await runMemoryMaintenanceFromRootLocked({
+      memoryRoot: lockedMemoryRoot,
+      budget: maintenanceBudget,
+      now,
+      reason: 'after manual memory promotion'
+    })
+
+    return {
+      project,
+      memoryRoot: lockedMemoryRoot,
+      result: {
+        action: 'promote',
+        candidateId: lockedCandidate.id,
+        memory: lockedMemory,
+        reviewHash: lockedReviewHash
+      }
+    }
+  })
 }
 
 function memoryForPromotedDecision(

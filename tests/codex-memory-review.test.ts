@@ -459,6 +459,30 @@ describe('Codex pending memory review', () => {
     await expect(readFile(join(memoryRoot, 'pending.jsonl'), 'utf8')).resolves.toContain(candidate.content)
   })
 
+  it('rejects promotion before mutation when the maintenance lock cannot be acquired', async () => {
+    const home = await createTempDir('cyrene-review-home-')
+    vi.stubEnv('HOME', home)
+    const cwd = await createTempDir('cyrene-review-project-')
+    const candidate = createPending()
+    const memoryRoot = await seedPending(cwd, [candidate])
+    await mkdir(join(memoryRoot, '.maintenance.lock'))
+    vi.stubEnv('CYRENE_MEMORY_MAINTENANCE_LOCK_TIMEOUT_MS', '1')
+
+    await expect(
+      promoteCodexPendingMemory({
+        cwd,
+        id: candidate.id,
+        reviewHash: reviewHashForPendingMemory(candidate),
+        now: '2026-05-25T01:00:00.000Z'
+      })
+    ).rejects.toThrow(/maintenance lock/)
+
+    await expect(readFile(join(memoryRoot, 'index.jsonl'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(join(memoryRoot, 'events.jsonl'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(join(memoryRoot, 'MODEL_PROFILE.md'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(join(memoryRoot, 'pending.jsonl'), 'utf8')).resolves.toContain(candidate.content)
+  })
+
   it('rejects rendering MODEL_PROFILE.md targets that are directories', async () => {
     const memoryRoot = await createTempDir('cyrene-review-memory-root-')
     await mkdir(join(memoryRoot, 'MODEL_PROFILE.md'))
