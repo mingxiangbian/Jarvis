@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createDefaultConfig, type AppConfig } from '../src/config.js'
 import { buildMemoryCandidatePrompt, extractMemoryCandidates } from '../src/memory/memory-candidate-extractor.js'
 import { processRunMemory } from '../src/memory/memory-runtime.js'
-import { readActiveMemories } from '../src/memory/memory-store.js'
+import { readActiveMemories, readPendingMemories } from '../src/memory/memory-store.js'
 import type { CallModelInput, ModelResponse } from '../src/llm-client.js'
 
 const tempDirs: string[] = []
@@ -101,7 +101,7 @@ describe('personal memory runtime pipeline', () => {
     expect(candidates[0]?.expiresAt).toBeDefined()
   })
 
-  it('processes a successful run into active memory', async () => {
+  it('keeps assistant-observed run extraction pending', async () => {
     const cwd = await createTempDir()
     const config = createMemoryConfig(cwd, true)
     const callModel = createCandidateModel()
@@ -115,11 +115,12 @@ describe('personal memory runtime pipeline', () => {
       callModel
     })
 
-    expect(result).toMatchObject({ extracted: 1, created: 1, pending: 0, rejected: 0, errors: 0 })
-    await expect(readActiveMemories(cwd)).resolves.toHaveLength(1)
+    expect(result).toMatchObject({ extracted: 1, created: 0, pending: 1, rejected: 0, errors: 0 })
+    await expect(readActiveMemories(cwd)).resolves.toHaveLength(0)
+    await expect(readPendingMemories(cwd)).resolves.toHaveLength(1)
   })
 
-  it('processes fenced JSON extraction responses into active memory', async () => {
+  it('keeps fenced assistant-observed JSON extraction responses pending', async () => {
     const cwd = await createTempDir()
     const config = createMemoryConfig(cwd, true)
     const callModel = createCandidateModel({ fenced: true })
@@ -133,8 +134,9 @@ describe('personal memory runtime pipeline', () => {
       callModel
     })
 
-    expect(result).toMatchObject({ extracted: 1, created: 1, pending: 0, rejected: 0, errors: 0 })
-    await expect(readActiveMemories(cwd)).resolves.toHaveLength(1)
+    expect(result).toMatchObject({ extracted: 1, created: 0, pending: 1, rejected: 0, errors: 0 })
+    await expect(readActiveMemories(cwd)).resolves.toHaveLength(0)
+    await expect(readPendingMemories(cwd)).resolves.toHaveLength(1)
   })
 
   it('keeps extraction failure best-effort', async () => {
